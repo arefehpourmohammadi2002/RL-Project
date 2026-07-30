@@ -4,67 +4,101 @@ class ClarkeWrightSavings:
         self.MDP = MDP
         self.depot = MDP.depot_num
         self.num_cars = MDP.num_cars
-        ''' here needs to be adjusted'''
-        self.list_routs = list(range(1, MDP.num_nodes)) # this is the fist clustring of CWS
-        self.saving = []
+        self.car_cap = MDP.cars_capacity
+        self.num_routes = MDP.num_nodes
 
-    def saving_two_routs(self, route1, route2):
+        self.list_routes = [] # this is the fist clustring of CWS
+        for i in range(self.MDP.num_nodes):
+            j = self.MDP.node_capacity[i]
+            temp_list = [[i], j]
+            self.list_routes.append(temp_list)
+
+        self.savings = []
+
+    def saving_two_routes(self, route1_id, route2_id):
+        route1 = self.list_routes[route1_id][0]
+        route2 = self.list_routes[route2_id][0]
+
         route2_first_node = route2[0]
         route1_last_node = route1[-1]
 
-        route_1_profit = self.MDP[self.depot][route2_first_node]
-        route_2_profit = self.MDP[route2_first_node][self.depot]
-        cost_of_this_merge = self.MDP[route1_last_node][route2_first_node]
+        routee_1_profit = self.MDP.distance_matrix[route1_last_node][self.depot]
+        routee_2_profit = self.MDP.distance_matrix[self.depot][route2_first_node]
+        cost_of_this_merge = self.MDP.distance_matrix[route1_last_node][route2_first_node]
 
-        return route_1_profit + route_2_profit - cost_of_this_merge
+        return routee_1_profit + routee_2_profit - cost_of_this_merge
 
     def sort(self):
-        self.saving.sort(reverse=True)
+        self.savings.sort(reverse=True)
 
     def merge(self):
         used = []
-        routs_num = 0
-        temp_routes_list = []
+        num_routes = 0
         stabel = True
 
-        for i in range(len(self.saving)):
-            current_saving = self.saving[i][0]
-            first_rout = self.saving[i][1]
-            second_rout = self.saving[i][2]
+        for i in range(len(self.savings)):
 
-            if first_rout not in used and second_rout not in used:
-                if current_saving >= 0 or (len(self.list_routs) - i + routs_num > self.num_cars):
-                    new_route = self.list_routs[i[1]] + self.list_routs[i[2]]
-                    temp_routes_list.append(new_route)
-                    routs_num += 1 
-                    used.append(i[0])
-                    used.append(i[1])
-                    stabel = False
+            current_saving = self.savings[i][0]
+            first_route_id = self.savings[i][1]
+            second_route_id = self.savings[i][2]
+
+            route1_cap = self.list_routes[first_route_id][1]
+            route2_cap = self.list_routes[second_route_id][1]
+
+            if route1_cap + route2_cap <= self.car_cap:
+
+                if first_route_id not in used and second_route_id not in used:
+                    if (current_saving >= 0 
+                        or (len(self.list_routes) - i + num_routes > self.num_cars) and stabel):
+
+                        new_route = self.list_routes[first_route_id][0] + self.list_routes[second_route_id][0]
+                        new_cap = route1_cap + route2_cap
+                        new_route = [new_route, new_cap]
+
+                        self.list_routes.append(new_route)
+
+                        used.append(first_route_id)
+                        used.append(second_route_id)
+
+                        num_routes += 1 
+                        stabel = False
+
+                    else:
+                        break
 
                 else:
-                    temp_routes_list.append(self.list_routs[i[1]])
-                    temp_routes_list.append(self.list_routs[i[2]])
-                    routs_num += 2 
-                    used.append(i[0])
-                    used.append(i[1])
-                    
-        self.list_routs = temp_routes_list
-        if routs_num > self.num_cars:
-            return False
+                    break
+                
+        for route_id in sorted(used, reverse=True):
+            del self.list_routes[route_id]
+
         return stabel
             
-
     def saving_calculate(self):
-        for i in len(self.list_routs):
-            for j in len(self.list_routs):
-                saving = self.saving_two_routs(self.list_routs[i], self.list_routs[j])
-                self.saving.append([saving, i , j])
+
+        for i in range(len(self.list_routes)):
+            for j in range(len(self.list_routes)):
+                if i != j and i != self.depot and j != self.depot:
+                    saving = self.saving_two_routes(i, j)
+                    self.savings.append([saving, i , j])
+
     
     def CWS_solve(self):
+
         while True:
+            self.savings.clear()
             self.saving_calculate()
             self.sort()
+            # print("_------------sorted saving------------")
+            # print(self.savings)
+            # print("routes before merge")
+            # print(self.list_routes)
             stabel = self.merge()
-            if stabel: 
-                break
+            
+            if stabel:
+                if len(self.list_routes) > self.num_cars:
+                    return False
+                return True
+
+                
         

@@ -17,7 +17,9 @@ class MDP():
             max_distance, 
             size=(self.num_nodes, self.num_nodes)
         )
-        
+        for i in range(self.num_nodes):
+            self.distance_matrix[i][i] = 0 
+            
     def fill_node_cap_matrix(self, min_node_cap, max_node_cap):
 
         self.node_capacity = np.random.uniform(

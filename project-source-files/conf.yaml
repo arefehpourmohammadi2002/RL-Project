@@ -1,0 +1,16 @@
+problem:
+  num_nodes: 5
+  depot_num: 0
+  num_cars: 2
+  cars_capacity: 100
+  max_dis: 10
+  min_dis: 1
+  max_cap: 70
+  min_cap: 1
+
+transformer:
+  GNN_input_embedding:
+    node_dim: 1
+    hidden_dim: 10
+    output_dime: 10
+    edge_dim: 1
