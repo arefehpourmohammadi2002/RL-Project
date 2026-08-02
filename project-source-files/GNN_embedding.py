@@ -1,9 +1,10 @@
 import torch.nn as nn
+import torch
 
-class SimpleGNN(nn.Model):# if inherent from messagepassing would it be better?
+class SimpleGNN(nn.Module):# if inherent from messagepassing would it be better?
     
     def __init__(self, node_dim, hidden_dim, output_dim, edge_dim):
-        super().__init__(aggr='sum')
+        super().__init__()
 
         input = node_dim + node_dim + edge_dim
 
@@ -24,6 +25,27 @@ class SimpleGNN(nn.Model):# if inherent from messagepassing would it be better?
 
     def forward(self, input):
         messages = self.message_passing(input)
-        message = sum(messages)
-        node_neihbors = cat(message+nodes)
-        return (self.message_aggregating(node_neihbors))
+        messages = messages.sum(dim=1)
+
+        node_feat = input[:, 0, 0:1]             
+        combine = torch.cat([messages, node_feat], dim=-1)
+
+        return (self.message_aggregating(combine))
+
+
+def create_node_feature(mdp):
+    return mdp.node_capacity
+
+def create_edge_feature(mdp):
+    return mdp.distance_matrix
+
+def create_input(node_feature, edge_feature):
+    
+    input = torch.zeros(len(node_feature), len(node_feature), 3)
+    for i in range(len(node_feature)):
+        for j in range(len(node_feature)):
+            input[i, j, 0] = node_feature[i]
+            input[i, j, 1] = node_feature[j]
+            input[i, j, 2] = edge_feature[i, j]
+
+    return input 

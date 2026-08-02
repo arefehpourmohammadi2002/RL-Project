@@ -8,9 +8,16 @@ problem:
   max_cap: 70
   min_cap: 1
 
-transformer:
+graph_transformer:
   GNN_input_embedding:
     node_dim: 1
     hidden_dim: 10
     output_dime: 10
     edge_dim: 1
+
+  multi_head_self_attention:
+    num_heads: 3
+    model_dim: 10
+    
+
+

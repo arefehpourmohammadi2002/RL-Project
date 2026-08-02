@@ -1,15 +1,18 @@
+import torch.nn as nn
 
+class DQNCVRP(nn.Module):
+    def __init__(self, graph_embedding, current_node, next_node, current_car_cap, hidden_dim, output_dim):
+        super().__init__()
 
-class DQNCVRP:
-    def __init__(self, MDP):
-        self.MDP = MDP
+        input_size = len(graph_embedding) + len(current_node) + len(next_node) + len(current_car_cap)
 
-    def making_model(self):
-        pass
+        self.dqn = nn.Sequential(
+            nn.Linear(input_size, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
 
-    def train_model(self):
-        pass
+    def forward(self, input):
+        return self.dqn(input)
 
-    def evaluate_model(self):
-        pass
     
