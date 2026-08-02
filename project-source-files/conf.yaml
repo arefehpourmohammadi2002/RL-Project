@@ -8,16 +8,17 @@ problem:
   max_cap: 70
   min_cap: 1
 
+GNN_input_embedding:
+  node_dim: 1
+  hidden_dim: 10
+  output_dime: 6
+  edge_dim: 1
+  
 graph_transformer:
-  GNN_input_embedding:
-    node_dim: 1
-    hidden_dim: 10
-    output_dime: 10
-    edge_dim: 1
-
-  multi_head_self_attention:
+  multi_head_attention:
     num_heads: 3
-    model_dim: 10
-    
+    model_dim: 6
+  num_layers: 3
+  ff_hidden_dim: 10
 
 

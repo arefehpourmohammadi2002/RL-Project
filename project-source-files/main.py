@@ -3,6 +3,7 @@ import yaml
 from MDP import MDP
 from heuristic import ClarkeWrightSavings
 import GNN_embedding  as GNN
+import graph_transformer as GT
 
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
@@ -17,11 +18,17 @@ MIN_DIS = config["problem"]["min_dis"]
 MAX_CAP = config["problem"]["max_cap"]
 MIN_CAP = config["problem"]["min_cap"]
 
-# transformer parameters
-GNN_NODE_DIM = config["graph_transformer"]["GNN_input_embedding"]["node_dim"]
-GNN_HiDDEN_DIM = config["graph_transformer"]["GNN_input_embedding"]["hidden_dim"]
-GNN_OUTPUT_DIM = config["graph_transformer"]["GNN_input_embedding"]["output_dime"]
-GNN_EDGE_DIM = config["graph_transformer"]["GNN_input_embedding"]["edge_dim"]
+# GNN_embeder parameters
+GNN_NODE_DIM = config["GNN_input_embedding"]["node_dim"]
+GNN_HiDDEN_DIM = config["GNN_input_embedding"]["hidden_dim"]
+GNN_OUTPUT_DIM = config["GNN_input_embedding"]["output_dime"]
+GNN_EDGE_DIM = config["GNN_input_embedding"]["edge_dim"]
+
+# Graph Transformer parameters
+NUM_HEAD = config["graph_transformer"]["multi_head_attention"]["num_heads"]
+MODEL_DIM = config["graph_transformer"]["multi_head_attention"]["model_dim"]
+NUM_LAYERS = config["graph_transformer"]["num_layers"]
+FF_HIDDEN_DIM = config["graph_transformer"]["ff_hidden_dim"]
 
 if __name__ == "__main__":
     mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
@@ -45,17 +52,21 @@ if __name__ == "__main__":
     #     print(cws.list_routes)
 
     ### GNN embedding for the input of the transformer ###
-    ''' for now the node_feature is one number the capacity of that node'''
-
-    gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM, GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-
     # by default the functions just return the cpacity matrix as the node feature and
     # distance matrix as the edge feature the point is but they are written this way to 
     # be possible to create other input forms for further enhancement 
     node_feature = GNN.create_node_feature(mdp)
     edge_feature = GNN.create_edge_feature(mdp)
-
     input = GNN.create_input(node_feature, edge_feature)
 
-    embedded_input = gnn_input_embedder(input)
-    print(embedded_input)
+    gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
+                                        GNN_OUTPUT_DIM, GNN_EDGE_DIM)
+    input = gnn_input_embedder(input)
+
+    ### Feeding the GNN output to the transformer
+    graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
+    graph_embedd = graph_transformer(input)
+    print(graph_embedd)
+
+    ### DQN 
+    routes = {f"route{k}": [] for k in range(0, mdp.num_cars)}

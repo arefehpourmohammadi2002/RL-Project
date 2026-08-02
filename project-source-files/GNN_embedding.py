@@ -26,7 +26,7 @@ class SimpleGNN(nn.Module):# if inherent from messagepassing would it be better?
     def forward(self, input):
         messages = self.message_passing(input)
         messages = messages.sum(dim=1)
-
+        
         node_feat = input[:, 0, 0:1]             
         combine = torch.cat([messages, node_feat], dim=-1)
 

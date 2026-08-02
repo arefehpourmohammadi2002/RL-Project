@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-class DQNCVRP(nn.Module):
+class DQNetwork(nn.Module):
     def __init__(self, graph_embedding, current_node, next_node, current_car_cap, hidden_dim, output_dim):
         super().__init__()
 
@@ -15,4 +15,18 @@ class DQNCVRP(nn.Module):
     def forward(self, input):
         return self.dqn(input)
 
-    
+
+class DQN:
+    def __init__(self, mdp, graph_embedding, node_embedding):
+        self.routes = {
+        f"route{k}": {
+            "path": [mdp.depot_num],          
+            "capacity": mdp.cars_capacity,      
+            "total_distance": 0.0, 
+            "current_node": mdp.depot_num 
+        }
+        for k in range(0, mdp.num_cars)
+    }
+
+
+
