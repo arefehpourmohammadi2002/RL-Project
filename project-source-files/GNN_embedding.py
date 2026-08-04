@@ -48,4 +48,4 @@ def create_input(node_feature, edge_feature):
             input[i, j, 1] = node_feature[j]
             input[i, j, 2] = edge_feature[i, j]
 
-    return input 
+    return input

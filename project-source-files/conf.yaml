@@ -21,4 +21,17 @@ graph_transformer:
   num_layers: 3
   ff_hidden_dim: 10
 
+DQN:
+  epsilon: 0.999
+  epsilon_decay: 0.009
+  rl: 3
+  output_dim: 1
+  hidden_dim: 10
+  num_epoches: 100
+  explore_model_update_step: 4
+  target_model_update_step: 20
+  replay_buff_cap: 4
+  replay_buffer_first_size: 2
+  discount: 0.9
+  batch_size: 8
 

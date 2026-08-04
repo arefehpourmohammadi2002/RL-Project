@@ -1,9 +1,10 @@
 import yaml
 
 from MDP import MDP
-from heuristic import ClarkeWrightSavings
-import GNN_embedding  as GNN
+# from heuristic import ClarkeWrightSavings  
+import GNN_embedding as GNN
 import graph_transformer as GT
+from DQN import DQN
 
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
@@ -30,10 +31,25 @@ MODEL_DIM = config["graph_transformer"]["multi_head_attention"]["model_dim"]
 NUM_LAYERS = config["graph_transformer"]["num_layers"]
 FF_HIDDEN_DIM = config["graph_transformer"]["ff_hidden_dim"]
 
+# DQN
+EPSILON = config["DQN"]["epsilon"]
+EPSILON_DECAY = config["DQN"]["epsilon_decay"]
+RL = config["DQN"]["rl"]
+DQN_OUTPUT_DIM = config["DQN"]["output_dim"]
+DQN_HIDDEN_DIM = config["DQN"]["hidden_dim"]
+NUM_EPOCHES = config["DQN"]["num_epoches"]
+EXP_UP_STEP = config["DQN"]["explore_model_update_step"]
+TRGET_UP_STEP = config["DQN"]["target_model_update_step"]
+REPLAY_BUF_CAP = config["DQN"]["replay_buff_cap"]
+REPLAY_BUF_FIRST_SIZE = config["DQN"]["replay_buffer_first_size"]
+DISCOUNT = config["DQN"]["discount"]
+BATCH_SIZE = config["DQN"]["batch_size"]
+
 if __name__ == "__main__":
     mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
-    mdp.fill_distance_matrix(MAX_DIS, MIN_DIS)
-    mdp.fill_node_cap_matrix(MAX_CAP, MIN_CAP)
+
+    mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
+    mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
 
     print("Environment")
     print("Distance matrix")
@@ -51,22 +67,19 @@ if __name__ == "__main__":
     # else:
     #     print(cws.list_routes)
 
-    ### GNN embedding for the input of the transformer ###
-    # by default the functions just return the cpacity matrix as the node feature and
-    # distance matrix as the edge feature the point is but they are written this way to 
-    # be possible to create other input forms for further enhancement 
+    ### GNN 
     node_feature = GNN.create_node_feature(mdp)
     edge_feature = GNN.create_edge_feature(mdp)
-    input = GNN.create_input(node_feature, edge_feature)
+    gnn_input = GNN.create_input(node_feature, edge_feature)
 
     gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
                                         GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-    input = gnn_input_embedder(input)
-
-    ### Feeding the GNN output to the transformer
     graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
-    graph_embedd = graph_transformer(input)
-    print(graph_embedd)
 
-    ### DQN 
-    routes = {f"route{k}": [] for k in range(0, mdp.num_cars)}
+    ### DQN
+    dqn = DQN(mdp, gnn_input_embedder, graph_transformer, gnn_input,
+              NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
+              EPSILON, EPSILON_DECAY, RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
+              REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DISCOUNT,
+              batch_size=BATCH_SIZE)
+    dqn.DQN_train()
