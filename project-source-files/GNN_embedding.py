@@ -39,7 +39,7 @@ def create_node_feature(mdp):
 def create_edge_feature(mdp):
     return mdp.distance_matrix
 
-def create_input(node_feature, edge_feature):
+def create_input(node_feature, edge_feature, LARGE_VALUE):
     
     input = torch.zeros(len(node_feature), len(node_feature), 3)
     for i in range(len(node_feature)):
@@ -47,5 +47,5 @@ def create_input(node_feature, edge_feature):
             input[i, j, 0] = node_feature[i]
             input[i, j, 1] = node_feature[j]
             input[i, j, 2] = edge_feature[i, j]
-
+    input = torch.where(torch.isinf(input), torch.full_like(input, LARGE_VALUE), input)
     return input

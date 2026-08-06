@@ -1,11 +1,12 @@
 import yaml
+import numpy as np
 
 from MDP import MDP
 from heuristic import ClarkeWrightSavings  
 import GNN_embedding as GNN
 import graph_transformer as GT
 from DQN import DQN
-
+from plot import performance_comparison
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
 
@@ -24,6 +25,7 @@ GNN_NODE_DIM = config["GNN_input_embedding"]["node_dim"]
 GNN_HiDDEN_DIM = config["GNN_input_embedding"]["hidden_dim"]
 GNN_OUTPUT_DIM = config["GNN_input_embedding"]["output_dime"]
 GNN_EDGE_DIM = config["GNN_input_embedding"]["edge_dim"]
+LARGE_VALUE = config["GNN_input_embedding"]["large_value"]
 
 # Graph Transformer parameters
 NUM_HEAD = config["graph_transformer"]["multi_head_attention"]["num_heads"]
@@ -52,46 +54,61 @@ def total_dis(routes, mdp):
         route_distance =  mdp.distance_matrix[mdp.depot_num][route[0]]
         for i in range(len(route)-1):
             route_distance += mdp.distance_matrix[route[i]][route[i+1]]
-        route_distance += mdp.distance_matrix[route[i]][mdp.depot_num]
+        route_distance += mdp.distance_matrix[route[-1]][mdp.depot_num]
         overall_total_dis += route_distance
     return overall_total_dis
 
 if __name__ == "__main__":
-    mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
+    huerisric_performance = np.full((NUM_NODES+1, NUM_CARS+1), float(1.0))
+    DQN_performance = np.full((NUM_NODES+1, NUM_CARS+1), float(1.0))
 
-    mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
-    mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
+    for num_nodes in range(5, NUM_NODES+1):
+        for num_cars in range(1, min(num_nodes-3, NUM_CARS+1)):
+            mdp = MDP(num_nodes, DEPOT_NUM, num_cars, CARS_CAPACITY)
 
-    print("Environment")
-    print("Distance matrix")
-    print(mdp.distance_matrix)
-    print("node capacities")
-    print(mdp.node_capacity)
+            mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
+            mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
 
-    ## heuristic result ###
-    cws = ClarkeWrightSavings(mdp)
-    feasible = cws.CWS_solve()
+            print("Environment")
+            print("Distance matrix")
+            print(mdp.distance_matrix)
+            print("node capacities")
+            print(mdp.node_capacity)
 
-    print("The result of the hueristic approach")
-    if not feasible:
-        print("the heuristic did not find a solution")
-    else:
-        print(cws.list_routes)
-    print(total_dis(cws.list_routes, mdp))
-    
-    # ### DQN-GNN-input-embeding-graph-transformer overall embedding 
-    # node_feature = GNN.create_node_feature(mdp)
-    # edge_feature = GNN.create_edge_feature(mdp)
-    # gnn_input = GNN.create_input(node_feature, edge_feature)
+            # heuristic result ###
+            cws = ClarkeWrightSavings(mdp)
+            feasible = cws.CWS_solve()
 
-    # gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
-    #                                     GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-    # graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
+            # print("The result of the hueristic approach")
+            # if not feasible:
+            #     print("the heuristic did not find a solution")
+            # else:
+            #     print(cws.list_routes)
+            huerisric_performance[num_nodes][num_cars] = total_dis(cws.list_routes, mdp)
+            
+            # ### DQN-GNN-input-embeding-graph-transformer overall embedding 
+            node_feature = GNN.create_node_feature(mdp)
+            edge_feature = GNN.create_edge_feature(mdp)
+            gnn_input = GNN.create_input(node_feature, edge_feature, LARGE_VALUE)
 
-    # ### DQN
-    # dqn = DQN(mdp, gnn_input_embedder, graph_transformer, gnn_input,
-    #           NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
-    #           EPSILON, EPSILON_DECAY, RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
-    #           REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DISCOUNT,
-    #           batch_size=BATCH_SIZE)
-    # dqn.DQN_train()
+            gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
+                                                GNN_OUTPUT_DIM, GNN_EDGE_DIM)
+            graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
+
+            ### DQN
+            node_embedding = gnn_input_embedder(gnn_input)
+            graph_embedding = graph_transformer(node_embedding)
+
+            dqn = DQN(mdp, gnn_input_embedder, graph_transformer, gnn_input,
+                    NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
+                    EPSILON, EPSILON_DECAY, RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
+                    REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DISCOUNT,
+                    batch_size=BATCH_SIZE)
+            dqn.DQN_train()
+            dqn_routs = dqn.eval_model()
+            dqn_dis = 0
+            for _, route in dqn_routs.items():
+                dqn_dis += route["total_distance"]
+            DQN_performance[num_nodes][num_cars] = dqn_dis
+            print("dqn_result: ", dqn_dis)
+    performance_comparison(huerisric_performance, DQN_performance)

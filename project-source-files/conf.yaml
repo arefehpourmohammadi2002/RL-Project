@@ -1,7 +1,7 @@
 problem:
-  num_nodes: 5
+  num_nodes: 10
   depot_num: 0
-  num_cars: 2
+  num_cars: 5
   cars_capacity: 100
   max_dis: 10
   min_dis: 1
@@ -13,6 +13,7 @@ GNN_input_embedding:
   hidden_dim: 10
   output_dime: 6
   edge_dim: 1
+  large_value: 100
   
 graph_transformer:
   multi_head_attention:
@@ -27,7 +28,7 @@ DQN:
   rl: 3
   output_dim: 1
   hidden_dim: 10
-  num_epoches: 100
+  num_epoches: 1000
   explore_model_update_step: 4
   target_model_update_step: 20
   replay_buff_cap: 4

@@ -279,7 +279,6 @@ class DQN:
                     route["total_distance"] += distance
                     route["current_node"] = node
                 else:
-                    
                     route["total_distance"] += self.mdp.distance_matrix[route["current_node"]][self.mdp.depot_num]
                     finished[k] = True
 
