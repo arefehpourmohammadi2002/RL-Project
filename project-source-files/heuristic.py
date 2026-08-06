@@ -9,16 +9,20 @@ class ClarkeWrightSavings:
 
         self.list_routes = [] # this is the fist clustring of CWS
         for i in range(self.MDP.num_nodes):
-            j = self.MDP.node_capacity[i]
-            temp_list = [[i], j]
-            self.list_routes.append(temp_list)
+            if i != self.depot:
+                j = self.MDP.node_capacity[i]
+                temp_list = [[i], j]
+                self.list_routes.append(temp_list)
 
         self.savings = []
 
     def saving_two_routes(self, route1_id, route2_id):
+
         route1 = self.list_routes[route1_id][0]
         route2 = self.list_routes[route2_id][0]
-
+        print("in saving two routes")
+        print("route1: ", route1_id, route1)
+        print("route2: ", route2_id, route2)
         route2_first_node = route2[0]
         route1_last_node = route1[-1]
 
@@ -44,7 +48,9 @@ class ClarkeWrightSavings:
 
             route1_cap = self.list_routes[first_route_id][1]
             route2_cap = self.list_routes[second_route_id][1]
-
+            print("in merge:")
+            print("route1: ", self.list_routes[first_route_id])
+            print("route2: ", self.list_routes[second_route_id])
             if route1_cap + route2_cap <= self.car_cap:
 
                 if first_route_id not in used and second_route_id not in used:
@@ -75,10 +81,10 @@ class ClarkeWrightSavings:
         return stabel
             
     def saving_calculate(self):
-
+        print(self.list_routes)
         for i in range(len(self.list_routes)):
             for j in range(len(self.list_routes)):
-                if i != j and i != self.depot and j != self.depot:
+                if i != j:
                     saving = self.saving_two_routes(i, j)
                     self.savings.append([saving, i , j])
 
@@ -89,12 +95,13 @@ class ClarkeWrightSavings:
             self.savings.clear()
             self.saving_calculate()
             self.sort()
-            # print("_------------sorted saving------------")
-            # print(self.savings)
-            # print("routes before merge")
-            # print(self.list_routes)
+            print("_------------sorted saving------------")
+            print(self.savings)
+            print("routes before merge")
+            print(self.list_routes)
             stabel = self.merge()
-            
+            print("routes after merge")
+            print(self.list_routes)
             if stabel:
                 if len(self.list_routes) > self.num_cars:
                     return False

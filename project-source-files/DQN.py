@@ -213,7 +213,7 @@ class DQN:
 
     def DQN_train(self):
         explore_update = 0
-        for epoch in range(self.num_epoches):
+        for _ in range(self.num_epoches):
             for _, route in self.routes.items():
                 if route["capacity"] >= self.mdp.cars_capacity:
                     continue

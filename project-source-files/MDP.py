@@ -19,6 +19,8 @@ class MDP():
             size=(self.num_nodes, self.num_nodes)
         )
         for i in range(self.num_nodes):
+            self.distance_matrix[i, :] = self.distance_matrix[:, i]
+        for i in range(self.num_nodes):
             self.distance_matrix[i][i] = float("inf")
 
     def fill_node_cap_matrix(self, min_node_cap, max_node_cap):
@@ -28,7 +30,7 @@ class MDP():
             max_node_cap,
             size=(self.num_nodes)
         )
-
+        self.node_capacity[self.depot_num] = 0
 
 def apply_action(route, action, mdp):
 

@@ -1,7 +1,7 @@
 import yaml
 
 from MDP import MDP
-# from heuristic import ClarkeWrightSavings  
+from heuristic import ClarkeWrightSavings  
 import GNN_embedding as GNN
 import graph_transformer as GT
 from DQN import DQN
@@ -45,6 +45,17 @@ REPLAY_BUF_FIRST_SIZE = config["DQN"]["replay_buffer_first_size"]
 DISCOUNT = config["DQN"]["discount"]
 BATCH_SIZE = config["DQN"]["batch_size"]
 
+def total_dis(routes, mdp):
+    overall_total_dis = 0
+    for route in routes:
+        route = route[0]
+        route_distance =  mdp.distance_matrix[mdp.depot_num][route[0]]
+        for i in range(len(route)-1):
+            route_distance += mdp.distance_matrix[route[i]][route[i+1]]
+        route_distance += mdp.distance_matrix[route[i]][mdp.depot_num]
+        overall_total_dis += route_distance
+    return overall_total_dis
+
 if __name__ == "__main__":
     mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
 
@@ -57,29 +68,30 @@ if __name__ == "__main__":
     print("node capacities")
     print(mdp.node_capacity)
 
-    ### heuristic result ###
-    # cws = ClarkeWrightSavings(mdp)
-    # feasible = cws.CWS_solve()
+    ## heuristic result ###
+    cws = ClarkeWrightSavings(mdp)
+    feasible = cws.CWS_solve()
 
-    # print("The result of the hueristic approach")
-    # if not feasible:
-    #     print("the heuristic did not find a solution")
-    # else:
-    #     print(cws.list_routes)
+    print("The result of the hueristic approach")
+    if not feasible:
+        print("the heuristic did not find a solution")
+    else:
+        print(cws.list_routes)
+    print(total_dis(cws.list_routes, mdp))
+    
+    # ### DQN-GNN-input-embeding-graph-transformer overall embedding 
+    # node_feature = GNN.create_node_feature(mdp)
+    # edge_feature = GNN.create_edge_feature(mdp)
+    # gnn_input = GNN.create_input(node_feature, edge_feature)
 
-    ### GNN 
-    node_feature = GNN.create_node_feature(mdp)
-    edge_feature = GNN.create_edge_feature(mdp)
-    gnn_input = GNN.create_input(node_feature, edge_feature)
+    # gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
+    #                                     GNN_OUTPUT_DIM, GNN_EDGE_DIM)
+    # graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
 
-    gnn_input_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
-                                        GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-    graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
-
-    ### DQN
-    dqn = DQN(mdp, gnn_input_embedder, graph_transformer, gnn_input,
-              NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
-              EPSILON, EPSILON_DECAY, RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
-              REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DISCOUNT,
-              batch_size=BATCH_SIZE)
-    dqn.DQN_train()
+    # ### DQN
+    # dqn = DQN(mdp, gnn_input_embedder, graph_transformer, gnn_input,
+    #           NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
+    #           EPSILON, EPSILON_DECAY, RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
+    #           REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DISCOUNT,
+    #           batch_size=BATCH_SIZE)
+    # dqn.DQN_train()
