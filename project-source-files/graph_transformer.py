@@ -69,6 +69,6 @@ class Encoder(nn.Module):
         for layer in self.layers:
             input = layer(input)
 
-        graph_embedding = input.sum(dim=0)
+        graph_embedding = input.mean(dim=0)
 
         return graph_embedding

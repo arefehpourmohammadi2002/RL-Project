@@ -10,15 +10,23 @@ class ReplayBuffer:
         self.buffer = deque(maxlen=capacity)
         self.used = set()
 
-    def insert(self, route, next_state, reward):
-        self.buffer.append((copy.deepcopy(route), next_state, reward))
+    def insert(self, route, next_state, reward, used_snapshot):
+        # BUGFIX: we used to store only (route, next_state, reward) and later, during
+        # training, reuse whatever the *live* episode's `used` set happened to be at
+        # replay time. That set has nothing to do with which nodes were actually
+        # visited when this transition was generated, so it corrupted both the
+        # "remaining nodes" feature and the next-state Q target. We now snapshot the
+        # visited-set at insert time (frozenset so it's immutable/hashable and can't
+        # be mutated later by the live episode).
+        self.buffer.append((copy.deepcopy(route), next_state, reward, frozenset(used_snapshot)))
 
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
         routes = [copy.deepcopy(b[0]) for b in batch]
         next_states = [b[1] for b in batch]
         rewards = [b[2] for b in batch]
-        return routes, next_states, rewards
+        used_sets = [b[3] for b in batch]
+        return routes, next_states, rewards, used_sets
 
     def full_buffer(self, first_buffer_input, mdp):
 
@@ -49,7 +57,7 @@ class ReplayBuffer:
                     distance = mdp.distance_matrix[route["current_node"], new_node]
                     reward = -1.0 * distance
 
-                    self.insert(route, new_node, reward)
+                    self.insert(route, new_node, reward, self.used)
 
                     route = apply_action(route, new_node, mdp)
                     self.used.add(new_node)

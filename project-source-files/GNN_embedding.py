@@ -17,15 +17,19 @@ class SimpleGNN(nn.Module):# if inherent from messagepassing would it be better?
         )
 
         self.message_aggregating = nn.Sequential(
-    
-            nn.Linear(output_dim+node_dim, output_dim),
-            nn.ReLU()
-            # does the relu is ok more layers is needed?
+            nn.Linear(output_dim + node_dim, output_dim)
+            # BUGFIX: dropped the trailing ReLU here. This is the *final* node
+            # embedding, which then feeds dot-product attention in
+            # graph_transformer.py. Ending on ReLU forces every embedding to be
+            # non-negative, which restricts attention scores to only ever measure
+            # "how much alignment" rather than allowing negative/opposing
+            # relationships between nodes, and it also zeroes gradients for any
+            # unit that goes negative during training.
         )
 
     def forward(self, input):
         messages = self.message_passing(input)
-        messages = messages.sum(dim=1)
+        messages = messages.mean(dim=1)
         
         node_feat = input[:, 0, 0:1]             
         combine = torch.cat([messages, node_feat], dim=-1)

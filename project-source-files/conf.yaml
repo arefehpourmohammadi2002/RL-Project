@@ -1,7 +1,7 @@
 problem:
-  num_nodes: 10
+  num_nodes: 20
   depot_num: 0
-  num_cars: 5
+  num_cars: 10
   cars_capacity: 100
   max_dis: 10
   min_dis: 1
@@ -10,29 +10,42 @@ problem:
 
 GNN_input_embedding:
   node_dim: 1
-  hidden_dim: 10
-  output_dime: 6
+  hidden_dim: 30
+  output_dime: 30
   edge_dim: 1
   large_value: 100
   
 graph_transformer:
   multi_head_attention:
-    num_heads: 3
-    model_dim: 6
+    num_heads: 10
+    model_dim: 30
   num_layers: 3
   ff_hidden_dim: 10
 
 DQN:
   epsilon: 0.999
-  epsilon_decay: 0.009
-  rl: 3
+  # BUGFIX: epsilon decays once per action taken. With the DQN_train fix (routes are
+  # now played out to completion each epoch, not just 1 step), a 20-node/10-car
+  # epoch takes roughly num_nodes + num_cars ~= 30 decay steps, i.e. ~30000 over
+  # 1000 epochs. This value takes epsilon from ~0.999 down to ~0.05 over that many
+  # steps. If you change num_nodes/num_cars/num_epoches a lot, recheck this.
+  epsilon_decay: 0.9999
+  rl: 0.003
   output_dim: 1
-  hidden_dim: 10
+  hidden_dim: 64
   num_epoches: 1000
   explore_model_update_step: 4
   target_model_update_step: 20
-  replay_buff_cap: 4
+  replay_buff_cap: 30
   replay_buffer_first_size: 2
   discount: 0.9
-  batch_size: 8
+  batch_size: 20
+
+A2C:
+  hidden_dim: 64
+  output_dim: 1
+  lr: 0.003
+  discount: 0.9
+  num_epoches: 1000
+  entropy_coef: 0.01
 

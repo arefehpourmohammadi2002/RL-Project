@@ -66,7 +66,7 @@ class ClarkeWrightSavings:
                         stabel = False
 
                     else:
-                        break
+                        continue
 
                 else:
                     break
