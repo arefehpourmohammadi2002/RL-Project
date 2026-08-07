@@ -55,13 +55,13 @@ class DQN:
         self.replay_buffer.full_buffer(replay_buffer_first_size, mdp)
         self.used = self.replay_buffer.used
 
+        
         with torch.no_grad():
-            node_embedding = self.gnn_model(self.gnn_input)
-            graph_embedding = self.transformer_model(node_embedding)
+            self.graph_embedding, self.node_embedding = self.compute_embeddings(requires_grad=False)
 
-        self.target_model = DQNetwork(graph_embedding.size(-1), node_embedding.size(-1),
+        self.target_model = DQNetwork(self.graph_embedding.size(-1), self.node_embedding.size(-1),
                                        1, 1, hiden_dim, output_dim)
-        self.explore_model = DQNetwork(graph_embedding.size(-1), node_embedding.size(-1),
+        self.explore_model = DQNetwork(self.graph_embedding.size(-1), self.node_embedding.size(-1),
                                         1, 1, hiden_dim, output_dim)
         self.target_model.load_state_dict(self.explore_model.state_dict())
 
@@ -82,9 +82,6 @@ class DQN:
         self.criterion = torch.nn.MSELoss()
 
         self.target_update_counter = 0
-
-        with torch.no_grad():
-            self.graph_embedding, self.node_embedding = self.compute_embeddings(requires_grad=False)
 
     def refresh_env(self):
 
