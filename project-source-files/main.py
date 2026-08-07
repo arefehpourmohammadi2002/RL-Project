@@ -1,6 +1,7 @@
+import random
+
 import yaml
 import numpy as np
-import random
 import torch
 
 from MDP import MDP
@@ -19,6 +20,7 @@ with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 # problem parametrs
+SEED = config["problem"]["seed"]
 NUM_NODES = config["problem"]["num_nodes"]
 DEPOT_NUM = config["problem"]["depot_num"]
 NUM_CARS = config["problem"]["num_cars"]
@@ -54,6 +56,9 @@ REPLAY_BUF_CAP = config["DQN"]["replay_buff_cap"]
 REPLAY_BUF_FIRST_SIZE = config["DQN"]["replay_buffer_first_size"]
 DQN_DISCOUNT = config["DQN"]["discount"]
 BATCH_SIZE = config["DQN"]["batch_size"]
+DQN_MAX_NUM_NODES = config["DQN"]["max_num_nodes"]
+DQN_MAX_NUM_CARS = config["DQN"]["max_num_cars"]
+DQN_CARS_CAPACITY = config["DQN"]["cars_capacity"]
 
 # A2C
 A2C_HIDDEN_DIM = config["A2C"]["hidden_dim"]
@@ -63,7 +68,7 @@ A2C_DISCOUNT = config["A2C"]["discount"]
 A2C_NUM_EPOCHES = config["A2C"]["num_epoches"]
 A2C_ENTROPY_COEF = config["A2C"]["entropy_coef"]
 
-SEED = 43
+
 def total_dis(routes, mdp):
     overall_total_dis = 0
     for route in routes:
@@ -79,25 +84,68 @@ def total_dis(routes, mdp):
 if __name__ == "__main__":
 
 
+
+
+    init_mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
+    init_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
+    init_mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
+
+    init_node_feature = GNN.create_node_feature(init_mdp)
+    init_edge_feature = GNN.create_edge_feature(init_mdp)
+    init_gnn_input = GNN.create_input(init_node_feature, init_edge_feature, LARGE_VALUE)
+
+    dqn_gnn_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
+                                      GNN_OUTPUT_DIM, GNN_EDGE_DIM)
+    dqn_graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
+
+
+    dqn = DQN(
+        mdp=init_mdp,
+        gnn_model=dqn_gnn_embedder,
+        transformer_model=dqn_graph_transformer,
+        gnn_input=init_gnn_input,
+        num_epoches=DQN_NUM_EPOCHES,
+        explore_model_update_step=EXP_UP_STEP,
+        target_model_update_step=TRGET_UP_STEP,
+        epsilon=EPSILON,
+        epsilon_decay=EPSILON_DECAY,
+        lr=DQN_RL,
+        hiden_dim=DQN_HIDDEN_DIM,
+        output_dim=DQN_OUTPUT_DIM,
+        replay_buff_cap=REPLAY_BUF_CAP,
+        replay_buffer_first_size=REPLAY_BUF_FIRST_SIZE,
+        discount=DQN_DISCOUNT,
+        batch_size=BATCH_SIZE,
+        min_num_nodes=5,
+        max_num_nodes=DQN_MAX_NUM_NODES,
+        min_num_cars=1,
+        max_num_cars=DQN_MAX_NUM_CARS,
+        cars_capacity=DQN_CARS_CAPACITY,
+        min_dis=MIN_DIS,
+        max_dis=MAX_DIS,
+        min_node_cap=MIN_CAP,
+        max_node_cap=MAX_CAP,
+        large_value=LARGE_VALUE,
+        depot_num=DEPOT_NUM,
+    )
+    dqn.DQN_train()
+
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
 
-    huerisric_performance = np.full((NUM_NODES + 1, NUM_CARS + 1), float(1.0))
-    DQN_performance = np.full((NUM_NODES + 1, NUM_CARS + 1), float(1.0))
-
-    mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
-    mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
-    mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
+    test_mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
+    test_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
+    test_mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
 
     print("Environment")
     print("Distance matrix")
-    print(mdp.distance_matrix)
+    print(test_mdp.distance_matrix)
     print("node capacities")
-    print(mdp.node_capacity)
+    print(test_mdp.node_capacity)
 
     # heuristic result
-    cws = ClarkeWrightSavings(mdp)
+    cws = ClarkeWrightSavings(test_mdp)
     feasible = cws.CWS_solve()
 
     print("The result of the hueristic approach")
@@ -105,49 +153,35 @@ if __name__ == "__main__":
         print("the heuristic did not find a solution")
     else:
         print(cws.list_routes)
-    heuristic_dis = total_dis(cws.list_routes, mdp)
+    heuristic_dis = total_dis(cws.list_routes, test_mdp)
     print("heuristic distance:", heuristic_dis)
-    # huerisric_performance[num_nodes][num_cars] = heuristic_dis
 
-    # Raw GNN input features -- built once from mdp, reused by both DQN and A2C.
-    node_feature = GNN.create_node_feature(mdp)
-    edge_feature = GNN.create_edge_feature(mdp)
-    gnn_input = GNN.create_input(node_feature, edge_feature, LARGE_VALUE)
+    test_node_feature = GNN.create_node_feature(test_mdp)
+    test_edge_feature = GNN.create_edge_feature(test_mdp)
+    test_gnn_input = GNN.create_input(test_node_feature, test_edge_feature, LARGE_VALUE)
 
     # ---------------- DQN ----------------
-    dqn_gnn_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
-                                      GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-    dqn_graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
 
-    dqn = DQN(mdp, dqn_gnn_embedder, dqn_graph_transformer, gnn_input,
-              DQN_NUM_EPOCHES, EXP_UP_STEP, TRGET_UP_STEP,
-              EPSILON, EPSILON_DECAY, DQN_RL, DQN_HIDDEN_DIM, DQN_OUTPUT_DIM,
-              REPLAY_BUF_CAP, REPLAY_BUF_FIRST_SIZE, discount=DQN_DISCOUNT,
-              batch_size=BATCH_SIZE)
-    dqn.DQN_train()
-    dqn_routes = dqn.eval_model()
+    dqn_routes = dqn.eval_model(test_mdp, test_gnn_input)
     dqn_dis = sum(route["total_distance"] for route in dqn_routes.values())
-    # DQN_performance[num_nodes][num_cars] = dqn_dis
+    for _, route in dqn_routes.items():
+        print(route["path"] )
     print("dqn_result: ", dqn_dis)
 
-    # ---------------- A2C ----------------
-    a2c_gnn_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
-                                      GNN_OUTPUT_DIM, GNN_EDGE_DIM)
-    a2c_graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
-
-    a2c = A2C(mdp, a2c_gnn_embedder, a2c_graph_transformer, gnn_input,
-              A2C_NUM_EPOCHES, A2C_RL, A2C_HIDDEN_DIM, A2C_OUTPUT_DIM,
-              A2C_DISCOUNT, entropy_coef=A2C_ENTROPY_COEF)
-    a2c.A2C_train()
-    a2c_routes = a2c.eval_model()
-    a2c_dis = sum(route["total_distance"] for route in a2c_routes.values())
-    print("a2c_result: ", a2c_dis)
-
     print()
-    print("=== Summary (same problem instance for all three) ===")
+    print("=== Summary (same problem instance for both) ===")
     print("heuristic:", heuristic_dis)
     print("dqn:      ", dqn_dis)
-    print("a2c:      ", a2c_dis)
 
-    if performance_comparison is not None:
-        pass  # performance_comparison(huerisric_performance, DQN_performance)
+    # ---------------- A2C ----------------
+    #
+    # a2c_gnn_embedder = GNN.SimpleGNN(GNN_NODE_DIM, GNN_HiDDEN_DIM,
+    #                                   GNN_OUTPUT_DIM, GNN_EDGE_DIM)
+    # a2c_graph_transformer = GT.Encoder(NUM_LAYERS, NUM_HEAD, MODEL_DIM, FF_HIDDEN_DIM)
+    # a2c = A2C(test_mdp, a2c_gnn_embedder, a2c_graph_transformer, test_gnn_input,
+    #           A2C_NUM_EPOCHES, A2C_RL, A2C_HIDDEN_DIM, A2C_OUTPUT_DIM,
+    #           A2C_DISCOUNT, entropy_coef=A2C_ENTROPY_COEF)
+    # a2c.A2C_train()
+    # a2c_routes = a2c.eval_model()
+    # a2c_dis = sum(route["total_distance"] for route in a2c_routes.values())
+    # print("a2c_result: ", a2c_dis)
