@@ -303,7 +303,7 @@ class DQN:
                     terminal_now.append(k)
                     continue
 
-                proposals[k] = self.propose_action(route, mdp, candidates, training)
+                proposals[k] = self.e_greedy_policy(route, mdp, candidates, training)
 
             for k in terminal_now:
                 route = routes[k]
