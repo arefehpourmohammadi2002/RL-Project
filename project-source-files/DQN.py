@@ -85,15 +85,21 @@ class DQN:
 
         self.explore_update_counter = 0
 
-        self.replay_buffer = ReplayBuffer(replay_buff_cap)
-        self.replay_buffer.full_buffer(replay_buffer_first_size, self._generate_random_env)
+        self.replay_buffer = ReplayBuffer(replay_buff_cap, min_num_nodes, max_num_nodes,
+                                            min_num_cars, max_num_cars,
+                                            cars_capacity,
+                                            min_dis, max_dis,
+                                            min_node_cap, max_node_cap,
+                                            large_value)
+        
+        self.replay_buffer.full_buffer(replay_buffer_first_size)
 
         with torch.no_grad():
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
                 self.gnn_input, requires_grad=False
             )
 
-        remaining_size = self.node_embedding.size(-1) + 1
+        remaining_size = self.node_embedding.size(-1) + 1 # why 
 
         self.target_model = DQNetwork(self.graph_embedding.size(-1), self.node_embedding.size(-1),
                                        1, 1, remaining_size, hiden_dim, output_dim)
@@ -116,7 +122,7 @@ class DQN:
 
         self.target_update_counter = 0
 
-    def _generate_random_env(self):
+    def generate_random_env(self):
         num_nodes = np.random.randint(self.min_num_nodes, self.max_num_nodes + 1)
         num_cars = np.random.randint(self.min_num_cars, self.max_num_cars + 1)
         cars_capacity = np.random.uniform(1, self.cars_capacity)
@@ -132,7 +138,7 @@ class DQN:
 
         return mdp, gnn_input
 
-    def _build_routes(self, mdp):
+    def build_routes(self, mdp):
         self.used.clear()
         return {
             f"route{k}": {
@@ -158,7 +164,7 @@ class DQN:
 
         unvisited = [i for i in range(mdp.num_nodes) if i not in used and i != mdp.depot_num]
         if not unvisited:
-            mean_emb = torch.zeros(node_embedding.size(-1), device=self.device)
+            mean_emb = torch.zeros(node_embedding.size(-1), device=self.device) # doesnt all zero cause env performace reduction
         else:
             idx = torch.tensor(unvisited, device=self.device)
             mean_emb = node_embedding[idx].mean(dim=0)
@@ -183,7 +189,7 @@ class DQN:
 
         return np.nonzero(mask)[0].tolist()
 
-    def _evaluate_candidates(self, route, mdp, candidates, target=False,
+    def evaluate_candidates(self, route, mdp, candidates, target=False,
                               graph_embedding=None, node_embedding=None, used=None):
 
         if target:
@@ -227,16 +233,16 @@ class DQN:
         if not candidates:
             return float('-inf'), None
 
-        q_values = self._evaluate_candidates(
+        q_values = self.evaluate_candidates(
             route, mdp, candidates, target=target,
             graph_embedding=graph_embedding, node_embedding=node_embedding, used=used
         )
         best_idx = torch.argmax(q_values).item()
         return q_values[best_idx].item(), candidates[best_idx]
 
-    def _propose_action(self, route, mdp, candidates):
+    def e_greedy_policy(self, route, mdp, candidates):
  
-        q_values = self._evaluate_candidates(route, mdp, candidates, target=False)
+        q_values = self.evaluate_candidates(route, mdp, candidates, target=False)
         best_idx = torch.argmax(q_values).item()
         q_max = q_values[best_idx].item()
 
@@ -247,12 +253,31 @@ class DQN:
 
         return q_max, candidates[exec_idx]
 
-    def _run_episode(self, mdp, gnn_input, training):
+    def execute(self, routes, mdp, training, k, node, q_max):
+        route = routes[k]
+        pre_state = copy.deepcopy(route)
+        distance = mdp.distance_matrix[route["current_node"], node]
+        reward = -1.0 * distance
+        route["path"].append(node)
+        route["capacity"] += mdp.node_capacity[node]
+        route["total_distance"] += distance
+        route["current_node"] = node
+        self.used.add(node)
 
+        if training:
+            self.replay_buffer.insert(pre_state, node, reward, self.used, mdp, self.gnn_input)
+            self.explore_update_counter += 1
+            if (self.explore_update_counter >= self.explore_model_update_step
+                    and len(self.replay_buffer.buffer) >= self.batch_size):
+                self.train_step()
+                self.explore_update_counter = 0
+            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
+
+    def run_episode(self, mdp, gnn_input, training):
         self.mdp = mdp
         self.gnn_input = gnn_input.to(self.device)
 
-        routes = self._build_routes(mdp)
+        routes = self.build_routes(mdp)
         with torch.no_grad():
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
                 self.gnn_input, requires_grad=False
@@ -262,28 +287,8 @@ class DQN:
         pool_ema = None
         stall_passes = 0
 
-        def execute(k, node, q_max):
-            route = routes[k]
-            pre_state = copy.deepcopy(route)
-            distance = mdp.distance_matrix[route["current_node"], node]
-            reward = -1.0 * distance
-            route["path"].append(node)
-            route["capacity"] += mdp.node_capacity[node]
-            route["total_distance"] += distance
-            route["current_node"] = node
-            self.used.add(node)
-
-            if training:
-                self.replay_buffer.insert(pre_state, node, reward, self.used, mdp, self.gnn_input)
-                self.explore_update_counter += 1
-                if (self.explore_update_counter >= self.explore_model_update_step
-                        and len(self.replay_buffer.buffer) >= self.batch_size):
-                    self.train_step()
-                    self.explore_update_counter = 0
-                self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
-
         while not all(finished.values()):
-            proposals = {}    
+            proposals = {}
             terminal_now = []
 
             for k, route in routes.items():
@@ -298,7 +303,7 @@ class DQN:
                     terminal_now.append(k)
                     continue
 
-                proposals[k] = self._propose_action(route, mdp, candidates)
+                proposals[k] = self.propose_action(route, mdp, candidates, training)
 
             for k in terminal_now:
                 route = routes[k]
@@ -323,7 +328,7 @@ class DQN:
                 q_max, node = proposals[k]
                 if node in self.used:
                     continue
-                execute(k, node, q_max)
+                self.execute(routes, mdp, training, k, node, q_max)
                 executed_keys.append(k)
 
             if proposals:
@@ -341,7 +346,7 @@ class DQN:
             if stall_passes >= self.max_stall_passes and proposals:
                 k = max(proposals, key=lambda kk: proposals[kk][0])
                 q_max, node = proposals[k]
-                execute(k, node, q_max)
+                self.execute(routes, mdp, training, k, node, q_max)
                 stall_passes = 0
 
             if len(self.used) >= mdp.num_nodes - 1:
@@ -354,16 +359,16 @@ class DQN:
 
         return routes
 
+    def embeddings_for(self, embeddings_cache, mdp, gnn_input):
+        key = id(mdp)
+        if key not in embeddings_cache:
+            embeddings_cache[key] = self.compute_embeddings(gnn_input, requires_grad=True)
+        return embeddings_cache[key]
+
     def train_step(self):
         routes, actions, rewards, used_sets, mdps, gnn_inputs = self.replay_buffer.sample(self.batch_size)
 
         embeddings_cache = {}
-
-        def embeddings_for(mdp, gnn_input):
-            key = id(mdp)
-            if key not in embeddings_cache:
-                embeddings_cache[key] = self.compute_embeddings(gnn_input, requires_grad=True)
-            return embeddings_cache[key]
 
         current_q_list = []
         target_q_list = []
@@ -373,7 +378,7 @@ class DQN:
             if action is None:
                 continue
 
-            graph_embedding, node_embedding = embeddings_for(mdp, gnn_input)
+            graph_embedding, node_embedding = self.embeddings_for(embeddings_cache, mdp, gnn_input)
 
             remaining = self.remaining_summary(node_embedding, mdp, used)
 
@@ -433,10 +438,10 @@ class DQN:
             if i == 0:
                 mdp, gnn_input = self.mdp, self.gnn_input
             else:
-                mdp, gnn_input = self._generate_random_env()
-            self._run_episode(mdp, gnn_input, training=True)
+                mdp, gnn_input = self.generate_random_env()
+            self.run_episode(mdp, gnn_input, training=True)
 
     def eval_model(self, mdp=None, gnn_input=None):
         if mdp is None or gnn_input is None:
-            mdp, gnn_input = self._generate_random_env()
-        return self._run_episode(mdp, gnn_input, training=False)
+            mdp, gnn_input = self.generate_random_env()
+        return self.run_episode(mdp, gnn_input, training=False)
