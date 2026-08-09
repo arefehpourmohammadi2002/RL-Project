@@ -10,7 +10,7 @@ import GNN_embedding as GNN
 class ReplayBuffer:
     def __init__(self, capacity, min_num_nodes, max_num_nodes, min_num_cars,
                  max_num_cars, cars_capacity, min_dis, max_dis, min_node_cap, 
-                 max_node_cap, large_value, device):
+                 max_node_cap, large_value, device, depot_num):
         self.buffer = deque(maxlen=capacity)
 
         self.min_num_nodes = min_num_nodes
@@ -24,6 +24,7 @@ class ReplayBuffer:
         self.max_node_cap = max_node_cap
         self.large_value = large_value
         self.device = device
+        self.depot_num = depot_num
 
     def insert(self, route, next_state, reward, used_snapshot, mdp, gnn_input):
 
@@ -61,7 +62,7 @@ class ReplayBuffer:
     def full_buffer(self, first_buffer_input):
 
         for _ in range(first_buffer_input):
-            mdp, gnn_input = self.env_generator()
+            mdp, gnn_input = self.generate_random_env()
 
             route = {
                 "path": [mdp.depot_num],

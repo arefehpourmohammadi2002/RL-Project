@@ -90,7 +90,9 @@ class DQN:
                                             cars_capacity,
                                             min_dis, max_dis,
                                             min_node_cap, max_node_cap,
-                                            large_value)
+                                            large_value, 
+                                            self.device,
+                                            self.depot_num)
         
         self.replay_buffer.full_buffer(replay_buffer_first_size)
 
@@ -160,7 +162,7 @@ class DQN:
                 graph_embedding = self.transformer_model(node_embedding)
         return graph_embedding, node_embedding
 
-    def remaining_summary(self, node_embedding, mdp, used):
+    def remaining_summary(self, node_embedding, mdp, used):# isnt here
 
         unvisited = [i for i in range(mdp.num_nodes) if i not in used and i != mdp.depot_num]
         if not unvisited:
@@ -240,13 +242,13 @@ class DQN:
         best_idx = torch.argmax(q_values).item()
         return q_values[best_idx].item(), candidates[best_idx]
 
-    def e_greedy_policy(self, route, mdp, candidates):
+    def e_greedy_policy(self, route, mdp, candidates, training):
  
         q_values = self.evaluate_candidates(route, mdp, candidates, target=False)
         best_idx = torch.argmax(q_values).item()
         q_max = q_values[best_idx].item()
 
-        if random.random() < self.epsilon:
+        if random.random() < self.epsilon and not training:
             exec_idx = random.randrange(len(candidates))
         else:
             exec_idx = best_idx
