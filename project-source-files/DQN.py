@@ -26,6 +26,8 @@ class DQNetwork(nn.Module):
         self.dqn = nn.Sequential(
             nn.Linear(input_size, hidden_dim),
             nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
             nn.Linear(hidden_dim, output_dim)
         )
 
@@ -162,7 +164,7 @@ class DQN:
                 graph_embedding = self.transformer_model(node_embedding)
         return graph_embedding, node_embedding
 
-    def remaining_summary(self, node_embedding, mdp, used):# isnt here
+    def remaining_summary(self, node_embedding, mdp, used):
 
         unvisited = [i for i in range(mdp.num_nodes) if i not in used and i != mdp.depot_num]
         if not unvisited:

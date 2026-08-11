@@ -1,7 +1,7 @@
 import yaml
 import numpy as np
 import torch
-
+import random
 from MDP import MDP
 from heuristic import ClarkeWrightSavings
 import GNN_embedding as GNN
@@ -19,6 +19,7 @@ with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 # problem parameters
+SEED = config["problem"]["seed"]
 DEPOT_NUM = config["problem"]["depot_num"]
 NUM_NODES = config["problem"]["num_nodes"]
 NUM_CARS = config["problem"]["num_cars"]
@@ -82,7 +83,9 @@ def total_dis(routes, mdp):
 
 
 if __name__ == "__main__":
-
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
     init_mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
     init_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
     init_mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
@@ -136,29 +139,17 @@ if __name__ == "__main__":
     }, CHECKPOINT_PATH)
     print(f"Saved model parameters to {CHECKPOINT_PATH}")
 
-    # ---- grid sweep vs CW savings heuristic ----
+    # ---- RL methods vs CW savings heuristic ----
     node_values = list(range(GRID_MIN_NODES, GRID_MAX_NODES + 1))
     car_values = list(range(GRID_MIN_CARS, GRID_MAX_CARS + 1))
 
-    heuristic_perf = np.zeros((len(node_values), len(car_values)))
-    dqn_perf = np.zeros((len(node_values), len(car_values)))
 
-    # Feasibility-weighted metric, one value per num_nodes:
-    #   (average distance over only the FEASIBLE trials for this node count,
-    #    across every num_cars value) * (feasible trial count / total trial count)
-    heuristic_weighted_by_nodes = np.zeros(len(node_values))
-    dqn_weighted_by_nodes = np.zeros(len(node_values))
+    heuristic_avg_dis = np.zeros((len(node_values), len(car_values)))
+    dqn_avg_dis = np.zeros((len(node_values), len(car_values)))
+    heuristic_feasible_rate = np.zeros((len(node_values), len(car_values)))
+    dqn_feasible_rate = np.zeros((len(node_values), len(car_values)))
 
     for i, n_nodes in enumerate(node_values):
-
-        # Accumulated across every num_cars value and every trial for this
-        # num_nodes row -- this is what the feasibility-weighted metric below
-        # is computed from.
-        row_heuristic_feasible_dis = []
-        row_heuristic_total_trials = 0
-        row_dqn_feasible_dis = []
-        row_dqn_total_trials = 0
-
         for j, n_cars in enumerate(car_values):
 
             heuristic_trials = []
@@ -171,16 +162,9 @@ if __name__ == "__main__":
 
                 cws = ClarkeWrightSavings(test_mdp)
                 feasible = cws.CWS_solve()
-                if not feasible:
-                    print(f"  [nodes={n_nodes} cars={n_cars} trial={trial}] "
-                          f"heuristic needed more than {n_cars} vehicle(s); "
-                          f"distance still computed from its routes")
-                heuristic_dis = total_dis(cws.list_routes, test_mdp)
-                heuristic_trials.append(heuristic_dis)
-
-                row_heuristic_total_trials += 1
                 if feasible:
-                    row_heuristic_feasible_dis.append(heuristic_dis)
+                    heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
+                    heuristic_trials.append(heuristic_trial_dis)
 
                 test_node_feature = GNN.create_node_feature(test_mdp)
                 test_edge_feature = GNN.create_edge_feature(test_mdp)
@@ -188,93 +172,83 @@ if __name__ == "__main__":
 
                 dqn_routes = dqn.eval_model(test_mdp, test_gnn_input)
 
-                # BUGFIX: `if not dqn.used` only catches the case where ZERO
-                # nodes were ever visited -- it silently misses the much more
-                # common case of PARTIAL coverage (some nodes left unvisited).
-                # Compare the actual visited count against how many non-depot
-                # nodes exist instead. Mirrors the heuristic's own
-                # infeasibility handling above: warn, but still use the real
-                # (finite) distance -- injecting -inf into dqn_trials would
-                # poison np.mean() for the whole cell and break the plot's
-                # z-axis scaling, while the heuristic side only ever warns.
                 unvisited_count = (test_mdp.num_nodes - 1) - len(dqn.used)
-                dqn_feasible = unvisited_count == 0
-                if not dqn_feasible:
-                    print(f"  [nodes={n_nodes} cars={n_cars} trial={trial}] "
-                          f"DQN left {unvisited_count} node(s) unvisited")
-                dqn_dis = sum(r["total_distance"] for r in dqn_routes.values())
-                dqn_trials.append(dqn_dis)
+                if unvisited_count == 0:
+                    dqn_trial_dis = sum(r["total_distance"] for r in dqn_routes.values())
+                    dqn_trials.append(dqn_trial_dis)
 
-                row_dqn_total_trials += 1
-                if dqn_feasible:
-                    row_dqn_feasible_dis.append(dqn_dis)
+            heuristic_feasible_rate[i, j] = len(heuristic_trials) / GRID_TRIALS
+            dqn_feasible_rate[i, j] = len(dqn_trials) / GRID_TRIALS
 
-            heuristic_mean = np.mean(heuristic_trials)
-            heuristic_perf[i, j] = 0.0 if np.isnan(heuristic_mean) else heuristic_mean
+            if heuristic_trials:
+                heuristic_avg_dis[i, j] = np.mean(heuristic_trials)
 
-            dqn_mean = np.mean(dqn_trials)
-            dqn_perf[i, j] = 0.0 if np.isnan(dqn_mean) else dqn_mean
+            if dqn_trials:
+                dqn_avg_dis[i, j] = np.mean(dqn_trials)
 
-            print(f"nodes={n_nodes:>3} cars={n_cars:>3} | "
-                  f"heuristic={heuristic_perf[i, j]:10.3f} | dqn={dqn_perf[i, j]:10.3f}")
-
-        heuristic_ratio = (len(row_heuristic_feasible_dis) / row_heuristic_total_trials
-                            if row_heuristic_total_trials > 0 else 0.0)
-        heuristic_avg_feasible = (np.mean(row_heuristic_feasible_dis)
-                                   if row_heuristic_feasible_dis else 0.0)
-        heuristic_weighted_by_nodes[i] = heuristic_avg_feasible * heuristic_ratio
-
-        dqn_ratio = (len(row_dqn_feasible_dis) / row_dqn_total_trials
-                     if row_dqn_total_trials > 0 else 0.0)
-        dqn_avg_feasible = np.mean(row_dqn_feasible_dis) if row_dqn_feasible_dis else 0.0
-        dqn_weighted_by_nodes[i] = dqn_avg_feasible * dqn_ratio
+            # print(f"nodes={n_nodes} cars={n_cars} | "
+            #       f"heuristic avg={heuristic_avg_dis[i, j]:10.3f} "
+            #       f"(feasible {heuristic_feasible_rate[i, j]:5.0%}) | "
+            #       f"dqn avg={dqn_avg_dis[i, j]:10.3f} "
+            #       f"(feasible {dqn_feasible_rate[i, j]:5.0%})")
 
     print()
     print("=== Grid summary (rows=num_nodes, cols=num_cars) ===")
-    print("Heuristic distances:")
-    print(heuristic_perf)
-    print("DQN distances:")
-    print(dqn_perf)
+    print("Heuristic average distance (feasible trials only):")
+    print(heuristic_avg_dis)
+    print("Heuristic feasibility rate:")
+    print(heuristic_feasible_rate)
+    print("DQN average distance (feasible trials only):")
+    print(dqn_avg_dis)
+    print("DQN feasibility rate:")
+    print(dqn_feasible_rate)
+
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        heuristic_penalized = np.where(heuristic_feasible_rate > 0,
+                                        heuristic_avg_dis / heuristic_feasible_rate,
+                                        np.nan)
+        dqn_penalized = np.where(dqn_feasible_rate > 0,
+                                  dqn_avg_dis / dqn_feasible_rate,
+                                  np.nan)
+
+    finite_values = np.concatenate([
+        heuristic_penalized[~np.isnan(heuristic_penalized)],
+        dqn_penalized[~np.isnan(dqn_penalized)],
+    ])
+    if finite_values.size > 0:
+        worst_case = finite_values.max() * 1.2
+    else:
+        worst_case = 1.0  
+    heuristic_penalized = np.where(np.isnan(heuristic_penalized), worst_case, heuristic_penalized)
+    dqn_penalized = np.where(np.isnan(dqn_penalized), worst_case, dqn_penalized)
+
+    print()
+    print(f"=== Feasibility-penalized distance (avg_dis / feasible_rate, "
+          f"0%-feasible cells set to {worst_case:.3f}) ===")
+    print("Heuristic:")
+    print(heuristic_penalized)
+    print("DQN:")
+    print(dqn_penalized)
 
     if performance_comparison is None:
         print("plot.py not found - skipping plot generation.")
     else:
         performance_comparison(
-            heuristic_perf,
-            dqn_perf,
+            heuristic_penalized,
+            dqn_penalized,
             start_nodes=GRID_MIN_NODES,
             base_filename=GRID_BASE_FILENAME,
         )
-        print(f"Saved plots: {GRID_BASE_FILENAME}_3d.jpg, "
+        print(f"Saved distance plots: {GRID_BASE_FILENAME}_3d.jpg, "
               f"{GRID_BASE_FILENAME}_by_nodes.jpg, {GRID_BASE_FILENAME}_by_cars.jpg")
 
-    print()
-    print("=== Feasibility-weighted distance by num_nodes ===")
-    print("(average distance over feasible trials only, times the feasible-trial ratio,")
-    print(" pooled across every num_cars value for that num_nodes)")
-    print("Heuristic:", heuristic_weighted_by_nodes)
-    print("DQN:      ", dqn_weighted_by_nodes)
-
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(node_values, heuristic_weighted_by_nodes, label="Heuristic",
-                color="navy", marker="o")
-        ax.plot(node_values, dqn_weighted_by_nodes, label="DQN",
-                color="darkred", marker="s")
-        ax.set_xlabel("Number of Nodes", fontsize=11)
-        ax.set_ylabel("Feasibility-Weighted Average Distance", fontsize=11)
-        ax.set_title("Feasibility-Weighted Distance by Number of Nodes", fontsize=14)
-        ax.grid(True, linestyle="--", alpha=0.6)
-        ax.legend()
-        plt.tight_layout()
-
-        weighted_filename = f"{GRID_BASE_FILENAME}_weighted_by_nodes.jpg"
-        plt.savefig(weighted_filename, format="jpg", dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        print(f"Saved plot: {weighted_filename}")
-    except ImportError:
-        print("matplotlib not found - skipping feasibility-weighted plot.")
+        rate_base_filename = f"{GRID_BASE_FILENAME}_feasibility_rate"
+        performance_comparison(
+            heuristic_feasible_rate,
+            dqn_feasible_rate,
+            start_nodes=GRID_MIN_NODES,
+            base_filename=rate_base_filename,
+        )
+        print(f"Saved feasibility-rate plots: {rate_base_filename}_3d.jpg, "
+              f"{rate_base_filename}_by_nodes.jpg, {rate_base_filename}_by_cars.jpg")

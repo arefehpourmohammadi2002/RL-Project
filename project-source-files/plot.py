@@ -79,7 +79,7 @@ def performance_comparison(
     ax.plot(nodes_axis, dqn_by_nodes, label="DQN", color="darkred", marker="s")
     ax.set_xlabel("Number of Nodes", fontsize=11)
     ax.set_ylabel("Average Performance", fontsize=11)
-    ax.set_title("Performance Comparison by Number of Nodes", fontsize=14)
+    ax.set_title("Distance Comparison by Number of Nodes", fontsize=14)
     ax.grid(True, linestyle="--", alpha=0.6)
     ax.legend()
 
@@ -106,7 +106,7 @@ def performance_comparison(
     ax.plot(cars_axis, dqn_by_cars, label="DQN", color="darkred", marker="s")
     ax.set_xlabel("Number of Cars", fontsize=11)
     ax.set_ylabel("Average Performance", fontsize=11)
-    ax.set_title("Performance Comparison by Number of Cars", fontsize=14)
+    ax.set_title("Distance Comparison by Number of Cars", fontsize=14)
     ax.grid(True, linestyle="--", alpha=0.6)
     ax.legend()
 

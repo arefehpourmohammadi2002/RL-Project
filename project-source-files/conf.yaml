@@ -6,12 +6,12 @@ problem:
   cars_capacity: 100
   max_dis: 10
   min_dis: 1
-  max_cap: 60
+  max_cap: 10
   min_cap: 1
 
 GNN_input_embedding:
   node_dim: 1
-  hidden_dim: 32
+  hidden_dim: 10
   output_dime: 64         
   edge_dim: 1
   large_value: 100
@@ -22,26 +22,26 @@ graph_transformer:
     model_dim: 64            
   num_layers: 4              
                            
-  ff_hidden_dim: 128
+  ff_hidden_dim: 30
 
 DQN:
-  epsilon: 0.999
-  epsilon_decay: 0.9999
+  epsilon: 0.999 # not great change propabibly due to epoch less
+  epsilon_decay: 0.999
   rl: 0.05   
-  rl_decay: 0.1  
-  min_rl: 0.00001
+  rl_decay: 0.01  
+  min_rl: 0.0001
   output_dim: 1
-  hidden_dim: 128
-  num_epoches: 2      
-  explore_model_update_step: 4
-  target_model_update_step: 20
+  hidden_dim: 10
+  num_epoches: 2000  
+  explore_model_update_step: 5
+  target_model_update_step: 10
   replay_buff_cap: 5000    
-  replay_buffer_first_size: 100
-  discount: 0.95
-  batch_size: 28
-  max_num_nodes: 40
+  replay_buffer_first_size: 1000
+  discount: 0.95 # it does not have any impact ---> probabily due to less epoch in training
+  batch_size: 500
+  max_num_nodes: 50
   max_num_cars: 15
-  cars_capacity: 120
+  cars_capacity: 100
   
 A2C:
   hidden_dim: 64
@@ -55,6 +55,6 @@ grid_test:
   min_nodes: 5
   max_nodes: 40
   min_cars: 1
-  max_cars: 5
+  max_cars: 10
   trials_per_cell: 1
-  base_filename: "performance"
+  base_filename: "distnace"
