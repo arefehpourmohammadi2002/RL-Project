@@ -101,7 +101,7 @@ class DQN:
                 self.gnn_input, requires_grad=False
             )
 
-        remaining_size = self.node_embedding.size(-1) + 1 # why 
+        remaining_size = self.node_embedding.size(-1) + 1 
 
         self.target_model = DQNetwork(self.graph_embedding.size(-1), self.node_embedding.size(-1),
                                        1, 1, remaining_size, hiden_dim, output_dim)
@@ -140,6 +140,7 @@ class DQN:
 
         return mdp, gnn_input
 
+    # O(n)
     def build_routes(self, mdp):
         self.used.clear()
         return {
@@ -162,9 +163,14 @@ class DQN:
                 graph_embedding = self.transformer_model(node_embedding)
         return graph_embedding, node_embedding
 
-    def remaining_summary(self, node_embedding, mdp, used):# isnt here
+    def remaining_summary(self, node_embedding, mdp, used):
 
-        unvisited = [i for i in range(mdp.num_nodes) if i not in used and i != mdp.depot_num]
+        mask = np.ones(mdp.num_nodes, dtype=bool)
+        if used:
+            mask[np.fromiter(used, dtype=int)] = False
+        mask[mdp.depot_num] = False
+        unvisited = np.nonzero(mask)[0].tolist()
+
         if not unvisited:
             mean_emb = torch.zeros(node_embedding.size(-1), device=self.device) # doesnt all zero cause env performace reduction
         else:
@@ -248,7 +254,7 @@ class DQN:
         best_idx = torch.argmax(q_values).item()
         q_max = q_values[best_idx].item()
 
-        if random.random() < self.epsilon and not training:
+        if training and random.random() < self.epsilon:
             exec_idx = random.randrange(len(candidates))
         else:
             exec_idx = best_idx
@@ -258,6 +264,7 @@ class DQN:
     def execute(self, routes, mdp, training, k, node, q_max):
         route = routes[k]
         pre_state = copy.deepcopy(route)
+        used_snapshot = self.used.copy()  
         distance = mdp.distance_matrix[route["current_node"], node]
         reward = -1.0 * distance
         route["path"].append(node)
@@ -267,82 +274,92 @@ class DQN:
         self.used.add(node)
 
         if training:
-            self.replay_buffer.insert(pre_state, node, reward, self.used, mdp, self.gnn_input)
+            self.replay_buffer.insert(pre_state, node, reward, used_snapshot, mdp, self.gnn_input)
             self.explore_update_counter += 1
             if (self.explore_update_counter >= self.explore_model_update_step
                     and len(self.replay_buffer.buffer) >= self.batch_size):
-                self.train_step()
+                self.train_step() #O(batch_size)
                 self.explore_update_counter = 0
-            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
+            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay) 
 
     def run_episode(self, mdp, gnn_input, training):
         self.mdp = mdp
         self.gnn_input = gnn_input.to(self.device)
 
-        routes = self.build_routes(mdp)
-        with torch.no_grad():
+        routes = self.build_routes(mdp) # O(num_cars) -- > O(num_epoches) * O(num_cars)
+        with torch.no_grad(): # O(num_epoches) * (O(num_cars)+one forward of the transformer and the gnn)
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
-                self.gnn_input, requires_grad=False
-            )
+                self.gnn_input, requires_grad=False 
+            ) 
 
         finished = {k: False for k in routes}
         pool_ema = None
         stall_passes = 0
 
-        while not all(finished.values()):
-            proposals = {}
-            terminal_now = []
+        while not all(finished.values()): # O(num_epoches) * ((O(num_cars)+one forward of the transformer and the gnn) * ?)
+            proposals = {}  
+            terminal_now = [] 
 
-            for k, route in routes.items():
+            for k, route in routes.items(): # O(num_epoches) * ((O(num_cars)+one forward of the transformer and the gnn) * ?)
                 if finished[k]:
                     continue
-                if route["capacity"] >= mdp.cars_capacity:
+                if route["capacity"] >= mdp.cars_capacity:  
                     finished[k] = True
+                    if training:
+                        pre_state = copy.deepcopy(route)
+                        used_snapshot = self.used.copy()
+                        distance = mdp.distance_matrix[route["current_node"]][mdp.depot_num]
+                        reward = -1.0 * distance
+                        self.replay_buffer.insert(pre_state, None, reward, used_snapshot, mdp, self.gnn_input)
                     continue
 
-                candidates = self.get_candidates(route, mdp)
-                if not candidates:
+                candidates = self.get_candidates(route, mdp) # it is o(n)
+                if not candidates: 
                     terminal_now.append(k)
+                    pre_state = copy.deepcopy(route)
+                    used_snapshot = self.used.copy()
+                    distance = mdp.distance_matrix[route["current_node"]][mdp.depot_num]
+                    reward = -1.0 * distance
+                    route["total_distance"] += distance
+                    route["path"].append(mdp.depot_num)
+                    route["current_node"] = mdp.depot_num
+                    finished[k] = True
+                    if training:
+                        self.replay_buffer.insert(pre_state, None, reward, used_snapshot, mdp, self.gnn_input)
                     continue
 
                 proposals[k] = self.e_greedy_policy(route, mdp, candidates, training)
 
-            for k in terminal_now:
-                route = routes[k]
-                pre_state = copy.deepcopy(route)
-                distance = mdp.distance_matrix[route["current_node"]][mdp.depot_num]
-                reward = -1.0 * distance
-                route["total_distance"] += distance
-                finished[k] = True
-                if training:
-                    self.replay_buffer.insert(pre_state, None, reward, self.used, mdp, self.gnn_input)
-
             accepted_keys = []
-            for k, (q_max, node) in proposals.items():
+            for k, (q_max, node) in proposals.items(): # number of rout
                 route_len = len(routes[k]["path"])
-                threshold = float('-inf') if pool_ema is None else pool_ema / route_len
+                if pool_ema is None:
+                    threshold = float('-inf') 
+                else:
+                    threshold = pool_ema / route_len
                 if q_max >= threshold:
                     accepted_keys.append(k)
 
             executed_keys = []
             accepted_keys.sort(key=lambda kk: proposals[kk][0], reverse=True)
-            for k in accepted_keys:
+            for k in accepted_keys: # O(number of routes )
                 q_max, node = proposals[k]
                 if node in self.used:
                     continue
-                self.execute(routes, mdp, training, k, node, q_max)
+                self.execute(routes, mdp, training, k, node, q_max) #batch_size
                 executed_keys.append(k)
 
             if proposals:
                 pass_mean = sum(q for q, _ in proposals.values()) / len(proposals)
-                pool_ema = pass_mean if pool_ema is None else (
-                    self.threshold_ema_alpha * pass_mean
-                    + (1 - self.threshold_ema_alpha) * pool_ema
-                )
+                if pool_ema is None:
+                    pool_ema = pass_mean  
+                else:
+                    pool_ema = (self.threshold_ema_alpha * pass_mean
+                                + (1 - self.threshold_ema_alpha) * pool_ema)
 
-            if executed_keys or terminal_now:
+            if executed_keys or terminal_now: 
                 stall_passes = 0
-            elif proposals:
+            elif proposals:# no new route finished and no route get new node but there are unused nodes 
                 stall_passes += 1
 
             if stall_passes >= self.max_stall_passes and proposals:
@@ -354,14 +371,14 @@ class DQN:
             if len(self.used) >= mdp.num_nodes - 1:
                 break
 
-        for k, route in routes.items():
-            if route["current_node"] != mdp.depot_num:
+        for k, route in routes.items(): 
+            if route["current_node"] != mdp.depot_num:# it must not be called did it really true? in which situation because when ever finish is true so the depot is added
                 route["path"].append(mdp.depot_num)
                 route["total_distance"] += mdp.distance_matrix[route["current_node"]][mdp.depot_num]
 
         return routes
 
-    def embeddings_for(self, embeddings_cache, mdp, gnn_input):
+    def embeddings_for(self, embeddings_cache, mdp, gnn_input): 
         key = id(mdp)
         if key not in embeddings_cache:
             embeddings_cache[key] = self.compute_embeddings(gnn_input, requires_grad=True)
@@ -369,74 +386,75 @@ class DQN:
 
     def train_step(self):
         routes, actions, rewards, used_sets, mdps, gnn_inputs = self.replay_buffer.sample(self.batch_size)
-
+ 
         embeddings_cache = {}
-
-        current_q_list = []
+ 
+        current_q_inputs = []
         target_q_list = []
-
+ 
         for route, action, reward, used, mdp, gnn_input in zip(
                 routes, actions, rewards, used_sets, mdps, gnn_inputs):
-            if action is None:
-                continue
-
+ 
             graph_embedding, node_embedding = self.embeddings_for(embeddings_cache, mdp, gnn_input)
-
+ 
             remaining = self.remaining_summary(node_embedding, mdp, used)
-
+ 
             cap_tensor = torch.tensor([route["capacity"]], dtype=torch.float32, device=self.device)
             dis_tensor = torch.tensor([route["total_distance"]], dtype=torch.float32, device=self.device)
-
-            inp = torch.cat([
+ 
+            action_node = action if action is not None else mdp.depot_num
+ 
+            current_q_inputs.append(torch.cat([
                 graph_embedding,
                 node_embedding[route["current_node"]],
-                node_embedding[action],
+                node_embedding[action_node],
                 cap_tensor,
                 dis_tensor,
                 remaining
-            ], dim=-1)
-
-            current_q_list.append(self.explore_model(inp))
-
-            next_route = apply_action(route, action, mdp)
-            with torch.no_grad():
-                q_max = 0.0
-                if next_route["capacity"] < mdp.cars_capacity:
-                    next_used = used | {action}
-                    q_max, best_action = self.find_best_action(
-                        next_route, mdp, target=True,
-                        graph_embedding=graph_embedding.detach(),
-                        node_embedding=node_embedding.detach(),
-                        used=next_used
-                    )
-                    if best_action is None:
-                        q_max = 0.0
-                y_value = reward + self.discount * q_max
+            ], dim=-1))
+ 
+            if action is None:
+                y_value = reward
+            else:
+                next_route = apply_action(route, action, mdp)
+                with torch.no_grad():
+                    q_max = 0.0
+                    if next_route["capacity"] < mdp.cars_capacity:
+                        next_used = used | {action}
+                        q_max, best_action = self.find_best_action(
+                            next_route, mdp, target=True,
+                            graph_embedding=graph_embedding.detach(),
+                            node_embedding=node_embedding.detach(),
+                            used=next_used
+                        )
+                        if best_action is None:
+                            q_max = 0.0
+                    y_value = reward + self.discount * q_max
             target_q_list.append(torch.tensor([y_value], dtype=torch.float32, device=self.device))
-
-        if not current_q_list:
+ 
+        if not current_q_inputs:
             return
-
-        current_q = torch.cat(current_q_list)
+ 
+        current_q = self.explore_model(torch.stack(current_q_inputs)).squeeze(-1)
         target_q = torch.cat(target_q_list).detach()
-
+ 
         loss = self.criterion(current_q, target_q)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
+ 
         self.target_update_counter += 1
         if self.target_update_counter >= self.target_model_update_step:
             self.target_model.load_state_dict(self.explore_model.state_dict())
             self.target_update_counter = 0
-
+ 
         with torch.no_grad():
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
                 self.gnn_input, requires_grad=False
             )
 
     def DQN_train(self):
-        for i in range(self.num_epoches):
+        for i in range(self.num_epoches): # Q(num_epoches)
             if i == 0:
                 mdp, gnn_input = self.mdp, self.gnn_input
             else:

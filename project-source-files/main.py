@@ -9,12 +9,11 @@ from heuristic import ClarkeWrightSavings
 import GNN_embedding as GNN
 import graph_transformer as GT
 from DQN import DQN
-from A2C import A2C
+# from A2C import A2C
 
-try:
-    from plot import performance_comparison
-except ImportError:
-    performance_comparison = None
+
+from plot import performance_comparison
+
 
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
@@ -82,9 +81,9 @@ def total_dis(routes, mdp):
 
 
 if __name__ == "__main__":
-
-
-
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
 
     init_mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
     init_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
@@ -130,9 +129,13 @@ if __name__ == "__main__":
     )
     dqn.DQN_train()
 
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
+    torch.save({
+        "gnn_model_state": dqn.gnn_model.state_dict(),
+        "transformer_model_state": dqn.transformer_model.state_dict(),
+        "explore_model_state": dqn.explore_model.state_dict(),
+        "target_model_state": dqn.target_model.state_dict(),
+    }, "dqn_checkpoint.pt")
+    print("Saved model parameters to dqn_checkpoint.pt")
 
     test_mdp = MDP(NUM_NODES, DEPOT_NUM, NUM_CARS, CARS_CAPACITY)
     test_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
