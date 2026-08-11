@@ -27,20 +27,22 @@ graph_transformer:
 DQN:
   epsilon: 0.999
   epsilon_decay: 0.9999
-  rl: 0.0005               
+  rl: 0.05   
+  rl_decay: 0.1  
+  min_rl: 0.00001
   output_dim: 1
   hidden_dim: 128
-  num_epoches: 800         
+  num_epoches: 2      
   explore_model_update_step: 4
   target_model_update_step: 20
   replay_buff_cap: 5000    
-  replay_buffer_first_size: 1000
+  replay_buffer_first_size: 100
   discount: 0.95
-  batch_size: 128
+  batch_size: 28
   max_num_nodes: 40
   max_num_cars: 15
   cars_capacity: 120
-
+  
 A2C:
   hidden_dim: 64
   output_dim: 1
@@ -51,8 +53,8 @@ A2C:
 
 grid_test:
   min_nodes: 5
-  max_nodes: 15
+  max_nodes: 40
   min_cars: 1
   max_cars: 5
-  trials_per_cell: 3
+  trials_per_cell: 1
   base_filename: "performance"
