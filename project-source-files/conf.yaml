@@ -32,13 +32,13 @@ DQN:
   min_rl: 0.0001
   output_dim: 1
   hidden_dim: 10
-  num_epoches: 1000
+  num_epoches: 200
   explore_model_update_step: 5
   target_model_update_step: 10
   replay_buff_cap: 5000    
-  replay_buffer_first_size: 100
+  replay_buffer_first_size: 2000
   discount: 0.95 # it does not have any impact ---> probabily due to less epoch in training
-  batch_size: 500
+  batch_size: 100
   max_num_nodes: 10
   max_num_cars: 5
   cars_capacity: 100

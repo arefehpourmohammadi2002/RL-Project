@@ -503,18 +503,8 @@ class DQN:
                 print("no cws path")
             
             self.cws_dqn.append(total_dqn_dis-heuristic_trial_dis)
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
-
-            ax1.plot(self.cws_dqn, alpha=0.4, color='gray')
-            ax1.set_title("CWS vs DQN")
-
-            ax2.plot(self.loss_list, color='blue')
-            ax2.set_title("loss List")
-
-            # plt.tight_layout()  
-            # plt.savefig("loss_cws_dqb.jpg")
-            # plt.close()
-
+            plt.plot(self.cws_dqn, alpha=0.4, color='gray')
+            plt.savefig("cws vs dqn.jpg")
         print(self.loss_list)
 
     def eval_model(self, mdp=None, gnn_input=None):

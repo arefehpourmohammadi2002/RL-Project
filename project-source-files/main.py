@@ -14,7 +14,7 @@ from DQN import DQN
 from plot import performance_comparison
 
 
-CHECKPOINT_PATH = "dqn_checkpoint.pt"
+CHECKPOINT_PATH = "dqn_checkpoint_temp.pt"
 
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
@@ -138,11 +138,11 @@ if __name__ == "__main__":
         "explore_model_state": dqn.explore_model.state_dict(),
         "target_model_state": dqn.target_model.state_dict(),
     }, CHECKPOINT_PATH)
-    window = 100
-    smooth = np.convolve(dqn.loss_list, np.ones(window)/window, mode='valid')
-    plt.plot(dqn.loss_list, alpha=0.2, color='gray')
-    plt.plot(range(window-1, len(dqn.loss_list)), smooth, color='red', linewidth=3, zorder=5)
-    plt.savefig('loss.png')
+    # window = 100
+    # smooth = np.convolve(dqn.loss_list, np.ones(window)/window, mode='valid')
+    # plt.plot(dqn.loss_list, alpha=0.4, color='gray')
+    # plt.plot(range(window-1, len(dqn.loss_list)), smooth, color='red', linewidth=3)
+    # plt.savefig('loss.png')
 
 
     # ---- RL methods vs CW savings heuristic ----
@@ -150,110 +150,110 @@ if __name__ == "__main__":
     car_values = list(range(GRID_MIN_CARS, GRID_MAX_CARS + 1))
 
 
-    # heuristic_avg_dis = np.zeros((len(node_values), len(car_values)))
-    # dqn_avg_dis = np.zeros((len(node_values), len(car_values)))
-    # heuristic_feasible_rate = np.zeros((len(node_values), len(car_values)))
-    # dqn_feasible_rate = np.zeros((len(node_values), len(car_values)))
+    heuristic_avg_dis = np.zeros((len(node_values), len(car_values)))
+    dqn_avg_dis = np.zeros((len(node_values), len(car_values)))
+    heuristic_feasible_rate = np.zeros((len(node_values), len(car_values)))
+    dqn_feasible_rate = np.zeros((len(node_values), len(car_values)))
 
-    # for i, n_nodes in enumerate(node_values):
-    #     for j, n_cars in enumerate(car_values):
+    for i, n_nodes in enumerate(node_values):
+        for j, n_cars in enumerate(car_values):
 
-    #         heuristic_trials = []
-    #         dqn_trials = []
+            heuristic_trials = []
+            dqn_trials = []
 
-    #         for trial in range(GRID_TRIALS):
-    #             test_mdp = MDP(n_nodes, DEPOT_NUM, n_cars, CARS_CAPACITY)
-    #             test_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
-    #             test_mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
+            for trial in range(GRID_TRIALS):
+                test_mdp = MDP(n_nodes, DEPOT_NUM, n_cars, CARS_CAPACITY)
+                test_mdp.fill_distance_matrix(MIN_DIS, MAX_DIS)
+                test_mdp.fill_node_cap_matrix(MIN_CAP, MAX_CAP)
 
-    #             cws = ClarkeWrightSavings(test_mdp)
-    #             feasible = cws.CWS_solve()
-    #             if feasible:
-    #                 heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
-    #                 heuristic_trials.append(heuristic_trial_dis)
+                cws = ClarkeWrightSavings(test_mdp)
+                feasible = cws.CWS_solve()
+                if feasible:
+                    heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
+                    heuristic_trials.append(heuristic_trial_dis)
 
-    #             test_node_feature = GNN.create_node_feature(test_mdp)
-    #             test_edge_feature = GNN.create_edge_feature(test_mdp)
-    #             test_gnn_input = GNN.create_input(test_node_feature, test_edge_feature, LARGE_VALUE)
+                test_node_feature = GNN.create_node_feature(test_mdp)
+                test_edge_feature = GNN.create_edge_feature(test_mdp)
+                test_gnn_input = GNN.create_input(test_node_feature, test_edge_feature, LARGE_VALUE)
 
-    #             dqn_routes = dqn.eval_model(test_mdp, test_gnn_input)
+                dqn_routes = dqn.eval_model(test_mdp, test_gnn_input)
 
-    #             unvisited_count = (test_mdp.num_nodes - 1) - len(dqn.used)
-    #             if unvisited_count == 0:
-    #                 dqn_trial_dis = sum(r["total_distance"] for r in dqn_routes.values())
-    #                 dqn_trials.append(dqn_trial_dis)
+                unvisited_count = (test_mdp.num_nodes - 1) - len(dqn.used)
+                if unvisited_count == 0:
+                    dqn_trial_dis = sum(r["total_distance"] for r in dqn_routes.values())
+                    dqn_trials.append(dqn_trial_dis)
 
-    #         heuristic_feasible_rate[i, j] = len(heuristic_trials) / GRID_TRIALS
-    #         dqn_feasible_rate[i, j] = len(dqn_trials) / GRID_TRIALS
+            heuristic_feasible_rate[i, j] = len(heuristic_trials) / GRID_TRIALS
+            dqn_feasible_rate[i, j] = len(dqn_trials) / GRID_TRIALS
 
-    #         if heuristic_trials:
-    #             heuristic_avg_dis[i, j] = np.mean(heuristic_trials)
+            if heuristic_trials:
+                heuristic_avg_dis[i, j] = np.mean(heuristic_trials)
 
-    #         if dqn_trials:
-    #             dqn_avg_dis[i, j] = np.mean(dqn_trials)
+            if dqn_trials:
+                dqn_avg_dis[i, j] = np.mean(dqn_trials)
 
-    #         # print(f"nodes={n_nodes} cars={n_cars} | "
-    #         #       f"heuristic avg={heuristic_avg_dis[i, j]:10.3f} "
-    #         #       f"(feasible {heuristic_feasible_rate[i, j]:5.0%}) | "
-    #         #       f"dqn avg={dqn_avg_dis[i, j]:10.3f} "
-    #         #       f"(feasible {dqn_feasible_rate[i, j]:5.0%})")
+            # print(f"nodes={n_nodes} cars={n_cars} | "
+            #       f"heuristic avg={heuristic_avg_dis[i, j]:10.3f} "
+            #       f"(feasible {heuristic_feasible_rate[i, j]:5.0%}) | "
+            #       f"dqn avg={dqn_avg_dis[i, j]:10.3f} "
+            #       f"(feasible {dqn_feasible_rate[i, j]:5.0%})")
 
-    # print()
-    # print("=== Grid summary (rows=num_nodes, cols=num_cars) ===")
-    # print("Heuristic average distance (feasible trials only):")
-    # print(heuristic_avg_dis)
-    # print("Heuristic feasibility rate:")
-    # print(heuristic_feasible_rate)
-    # print("DQN average distance (feasible trials only):")
-    # print(dqn_avg_dis)
-    # print("DQN feasibility rate:")
-    # print(dqn_feasible_rate)
-
-
-    # with np.errstate(divide="ignore", invalid="ignore"):
-    #     heuristic_penalized = np.where(heuristic_feasible_rate > 0,
-    #                                     heuristic_avg_dis / heuristic_feasible_rate,
-    #                                     np.nan)
-    #     dqn_penalized = np.where(dqn_feasible_rate > 0,
-    #                               dqn_avg_dis / dqn_feasible_rate,
-    #                               np.nan)
-
-    # finite_values = np.concatenate([
-    #     heuristic_penalized[~np.isnan(heuristic_penalized)],
-    #     dqn_penalized[~np.isnan(dqn_penalized)],
-    # ])
-    # if finite_values.size > 0:
-    #     worst_case = finite_values.max() * 1.2
-    # else:
-    #     worst_case = 1.0  
-    # heuristic_penalized = np.where(np.isnan(heuristic_penalized), worst_case, heuristic_penalized)
-    # dqn_penalized = np.where(np.isnan(dqn_penalized), worst_case, dqn_penalized)
-
-    # print()
-    # print(f"=== Feasibility-penalized distance (avg_dis / feasible_rate, "
-    #       f"0%-feasible cells set to {worst_case:.3f}) ===")
-    # print("Heuristic:")
-    # print(heuristic_penalized)
-    # print("DQN:")
-    # print(dqn_penalized)
+    print()
+    print("=== Grid summary (rows=num_nodes, cols=num_cars) ===")
+    print("Heuristic average distance (feasible trials only):")
+    print(heuristic_avg_dis)
+    print("Heuristic feasibility rate:")
+    print(heuristic_feasible_rate)
+    print("DQN average distance (feasible trials only):")
+    print(dqn_avg_dis)
+    print("DQN feasibility rate:")
+    print(dqn_feasible_rate)
 
 
+    with np.errstate(divide="ignore", invalid="ignore"):
+        heuristic_penalized = np.where(heuristic_feasible_rate > 0,
+                                        heuristic_avg_dis / heuristic_feasible_rate,
+                                        np.nan)
+        dqn_penalized = np.where(dqn_feasible_rate > 0,
+                                  dqn_avg_dis / dqn_feasible_rate,
+                                  np.nan)
 
-    # performance_comparison(
-    #     heuristic_penalized,
-    #     dqn_penalized,
-    #     start_nodes=GRID_MIN_NODES,
-    #     base_filename=GRID_BASE_FILENAME,
-    # )
-    # print(f"Saved distance plots: {GRID_BASE_FILENAME}_3d.jpg, "
-    #         f"{GRID_BASE_FILENAME}_by_nodes.jpg, {GRID_BASE_FILENAME}_by_cars.jpg")
+    finite_values = np.concatenate([
+        heuristic_penalized[~np.isnan(heuristic_penalized)],
+        dqn_penalized[~np.isnan(dqn_penalized)],
+    ])
+    if finite_values.size > 0:
+        worst_case = finite_values.max() * 1.2
+    else:
+        worst_case = 1.0  
+    heuristic_penalized = np.where(np.isnan(heuristic_penalized), worst_case, heuristic_penalized)
+    dqn_penalized = np.where(np.isnan(dqn_penalized), worst_case, dqn_penalized)
 
-    # rate_base_filename = f"{GRID_BASE_FILENAME}_feasibility_rate"
-    # performance_comparison(
-    #     heuristic_feasible_rate,
-    #     dqn_feasible_rate,
-    #     start_nodes=GRID_MIN_NODES,
-    #     base_filename=rate_base_filename,
-    # )
-    # print(f"Saved feasibility-rate plots: {rate_base_filename}_3d.jpg, "
-    #         f"{rate_base_filename}_by_nodes.jpg, {rate_base_filename}_by_cars.jpg")
+    print()
+    print(f"=== Feasibility-penalized distance (avg_dis / feasible_rate, "
+          f"0%-feasible cells set to {worst_case:.3f}) ===")
+    print("Heuristic:")
+    print(heuristic_penalized)
+    print("DQN:")
+    print(dqn_penalized)
+
+
+
+    performance_comparison(
+        heuristic_penalized,
+        dqn_penalized,
+        start_nodes=GRID_MIN_NODES,
+        base_filename=GRID_BASE_FILENAME,
+    )
+    print(f"Saved distance plots: {GRID_BASE_FILENAME}_3d.jpg, "
+            f"{GRID_BASE_FILENAME}_by_nodes.jpg, {GRID_BASE_FILENAME}_by_cars.jpg")
+
+    rate_base_filename = f"{GRID_BASE_FILENAME}_feasibility_rate"
+    performance_comparison(
+        heuristic_feasible_rate,
+        dqn_feasible_rate,
+        start_nodes=GRID_MIN_NODES,
+        base_filename=rate_base_filename,
+    )
+    print(f"Saved feasibility-rate plots: {rate_base_filename}_3d.jpg, "
+            f"{rate_base_filename}_by_nodes.jpg, {rate_base_filename}_by_cars.jpg")
