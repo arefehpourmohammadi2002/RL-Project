@@ -122,10 +122,10 @@ class DQN:
             ),
             lr=lr
         )
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.SmoothL1Loss()
 
         self.target_update_counter = 0
-
+        self.loss_list = []
     def generate_random_env(self):
         num_nodes = np.random.randint(self.min_num_nodes, self.max_num_nodes + 1)
         num_cars = np.random.randint(self.min_num_cars, self.max_num_cars + 1)
@@ -328,7 +328,7 @@ class DQN:
         self.mdp = mdp
         self.gnn_input = gnn_input.to(self.device)
 
-        routes = self.build_routes(mdp)
+        routes = self.build_routes(mdp) #### not checked
         with torch.no_grad():
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
                 self.gnn_input, requires_grad=False
@@ -393,6 +393,7 @@ class DQN:
         return embeddings_cache[key]
 
     def train_step(self):
+        
         routes, actions, rewards, used_sets, mdps, gnn_inputs = self.replay_buffer.sample(self.batch_size)
 
         embeddings_cache = {}
@@ -445,8 +446,8 @@ class DQN:
 
         current_q = self.explore_model(torch.stack(current_q_inputs)).squeeze(-1)
         target_q = torch.cat(target_q_list).detach()
-
         loss = self.criterion(current_q, target_q)
+        self.loss_list.append(loss.item())
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -459,7 +460,7 @@ class DQN:
             self.target_model.load_state_dict(self.explore_model.state_dict())
             self.target_update_counter = 0
 
-        with torch.no_grad():
+        with torch.no_grad(): ## whyyy
             self.graph_embedding, self.node_embedding = self.compute_embeddings(
                 self.gnn_input, requires_grad=False
             )
@@ -475,7 +476,7 @@ class DQN:
         if self.lr_decay != 1.0:
             final_lr = self.optimizer.param_groups[0]["lr"]
             print(f"Final learning rate after decay: {final_lr:.6g}")
-
+        print(self.loss_list)
     def eval_model(self, mdp=None, gnn_input=None):
         if mdp is None or gnn_input is None:
             mdp, gnn_input = self.generate_random_env()

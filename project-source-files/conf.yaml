@@ -12,14 +12,14 @@ problem:
 GNN_input_embedding:
   node_dim: 1
   hidden_dim: 10
-  output_dime: 64         
+  output_dime: 32         
   edge_dim: 1
   large_value: 100
 
 graph_transformer:
   multi_head_attention:
     num_heads: 8           
-    model_dim: 64            
+    model_dim: 32            
   num_layers: 4              
                            
   ff_hidden_dim: 30
@@ -32,15 +32,15 @@ DQN:
   min_rl: 0.0001
   output_dim: 1
   hidden_dim: 10
-  num_epoches: 2000  
+  num_epoches: 1000
   explore_model_update_step: 5
   target_model_update_step: 10
   replay_buff_cap: 5000    
-  replay_buffer_first_size: 1000
+  replay_buffer_first_size: 100
   discount: 0.95 # it does not have any impact ---> probabily due to less epoch in training
   batch_size: 500
-  max_num_nodes: 50
-  max_num_cars: 15
+  max_num_nodes: 10
+  max_num_cars: 5
   cars_capacity: 100
   
 A2C:
