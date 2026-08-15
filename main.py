@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 
 from onlyDQN.only_DQN import OnlyDQN
 from transformerDQN.transformer_DQN import TransformerDQN
-
+from GNNDQN.gnn_DQN import GNNDQN
 from heuristic import ClarkeWrightSavings
 from MDP import MDP
 
@@ -38,6 +38,35 @@ min_distance=1.0
 max_distance=10.0
 min_node_dem=1.0
 max_node_dem=4.0
+
+gnn_dqn = GNNDQN(
+        gnn_input_dim=7,
+        gnn_hidden_dim=1,
+        gnn_output_dim=5,
+        large_value=100,
+        input_dim=20,
+        output_dim=output_dim,
+        hidden_dim=hidden_dim,
+        lr=lr,
+        target_update_counter=target_update_counter,
+        explore_update_counter=explore_update_counter,
+        discount=discount,
+        epsilon=epsilon,
+        batch_size=batch_size,
+        RB_capacity=RB_capacity,
+        num_first_samples=num_first_samples,
+        num_epoches=num_epoches,
+        max_num_nodes=max_num_nodes,
+        min_num_nodes=min_num_nodes,
+        depot_num=depot_num,
+        max_num_cars=max_num_cars,
+        min_num_cars=min_num_cars,
+        cars_capacity=cars_capacity,
+        min_distance=min_distance,
+        max_distance=max_distance,
+        min_node_dem=min_node_dem,
+        max_node_dem=max_node_dem
+    )
 
 only_dqn = OnlyDQN(
         input_dim=15,
@@ -93,12 +122,15 @@ transformer_dqn = TransformerDQN(
         max_node_dem=max_node_dem
     )
 
+
+gnn_dqn.DQN_train()
 only_dqn.DQN_train()
 transformer_dqn.DQN_train()
 
 heuristic_trials = []
 only_dqn_trials = []
 transformer_dqn_trials = []
+gnn_dqn_trials = []
 
 for n_nodes in range(5, 10):
     for n_cars in range(1, 4):
@@ -123,11 +155,17 @@ for n_nodes in range(5, 10):
         if len(only_dqn.used) == test_mdp.num_nodes:
             transformer_dqn_trials.append(trans_dqn_total_dis)
             print(trans_dqn_routes)
+
+        gnn_dqn_total_dis, gnn_dqn_routes = transformer_dqn.evaluate(test_mdp)
+        if len(only_dqn.used) == test_mdp.num_nodes:
+            gnn_dqn_trials.append(gnn_dqn_total_dis)
+            print(gnn_dqn_routes)
         
 
 plt.plot(heuristic_trials, label="heuristic")
 plt.plot(only_dqn_trials, label="only dqn")
 plt.plot(transformer_dqn_trials, label="transformer dqn")
+plt.plot(gnn_dqn_trials, label="gnn dqn")
 plt.legend()
 plt.savefig("node.png")
 

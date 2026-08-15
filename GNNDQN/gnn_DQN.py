@@ -2,21 +2,20 @@ import torch.nn as nn
 import torch
 from copy import deepcopy
 from itertools import chain
-
-from transformerDQN.transformer import Encoder
+import GNNDQN.GNN_embedding as GNN
 from DQN_parent import DQN
-import replay_buffer as RB
 
 
-class TransformerDQN(DQN):
-    def __init__(self, num_layers, num_heads, model_dim, FF_hidden_dim, **parent_variebles):
+class GNNDQN(DQN):
+    def __init__(self, gnn_input_dim, gnn_hidden_dim, gnn_output_dim, large_value, **parent_variebles):
         super().__init__(**parent_variebles)
 
-        self.transforemer = Encoder(num_layers=num_layers, num_heads=num_heads, 
-                                    model_dim=model_dim, FF_hidden_dim=FF_hidden_dim, device=self.device)
+        self.gnn = GNN.SimpleGNN(node_dim=gnn_input_dim, hidden_dim=gnn_hidden_dim, 
+                                output_dim=gnn_output_dim, edge_dim=1, device=self.device,
+                                large_value=large_value)
         self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters 
             chain(self.explore_model.parameters(), 
-            self.transforemer.parameters()),
+            self.gnn.parameters()),
             lr=self.lr
         )
 
@@ -27,10 +26,10 @@ class TransformerDQN(DQN):
         '''
         if not train:
             with torch.no_grad():
-                self.graph_embedding, self.node_embedding =  self.transforemer(mdp)
+                self.node_embedding =  self.gnn(mdp)
         else:
-            self.graph_embedding, self.node_embedding = self.transforemer(mdp)
-        return self.graph_embedding
+            self.node_embedding = self.gnn(mdp)
+        return self.node_embedding.mean(dim=0)
     
     def get_unused_nodes_statics(self, mdp, used):
         if self.node_embedding == None:
@@ -59,3 +58,4 @@ class TransformerDQN(DQN):
 
 
             
+
