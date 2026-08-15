@@ -1,0 +1,40 @@
+problem:
+  seed: 42
+  num_nodes: 10
+  depot_num: 0
+  num_cars: 5
+  cars_capacity: 100
+  max_dis: 10
+  min_dis: 1
+  max_cap: 60
+  min_cap: 1
+
+DQN:
+  epsilon: 0.999
+  epsilon_decay: 0.9999
+  rl: 0.003
+  rl_decay: 0.9999
+  min_rl: 0.0001
+  output_dim: 1
+  hidden_dim: 64
+  num_epoches: 1000
+  explore_model_update_step: 4
+  target_model_update_step: 20
+  replay_buff_cap: 20000
+  replay_buffer_first_size: 500
+  discount: 0.95
+  batch_size: 64
+  max_num_nodes: 40
+  max_num_cars: 15
+  min_num_nodes: 5
+  min_num_cars: 1
+  cars_capacity: 120
+  max_grad_norm: 1000.0
+
+grid_test:
+  min_nodes: 5
+  max_nodes: 20
+  min_cars: 1
+  max_cars: 5
+  trials_per_cell: 3
+  base_filename: "performance_raw_features"

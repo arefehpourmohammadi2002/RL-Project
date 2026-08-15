@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import statistics
 
 class Layer(nn.Module):
     def __init__(self, num_heads, model_dim, FF_hidden_dim):
@@ -65,7 +66,21 @@ class Encoder(nn.Module):
 
         self.final_norm = nn.LayerNorm(model_dim)
 
-    def forward(self, input):
+    def node_average_dis(self,node, mdp):
+        total_dis = (sum(mdp.distance_matrix[node][i] 
+                     for i in range(mdp.num_nodes)  
+                     if i != node and i != mdp.depot_num)) 
+        ave_dis = total_dis / len(total_dis)
+        std_dis = statistics.pstdev(total_dis) 
+        
+        return ave_dis, std_dis, 
+    
+    def input_create(self, mdp):
+        
+        
+
+    def forward(self, mdp):
+        input = self.input_create(mdp)
 
         for layer in self.layers:
             input = layer(input)

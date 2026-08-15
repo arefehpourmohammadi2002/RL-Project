@@ -1,16 +1,16 @@
 from collections import deque
 import random
 import copy
-import numpy as np
-from MDP import MDP, apply_action
-import GNN_embedding as GNN
 
+import numpy as np
+
+from MDP import MDP, apply_action
 
 
 class ReplayBuffer:
     def __init__(self, capacity, min_num_nodes, max_num_nodes, min_num_cars,
-                 max_num_cars, cars_capacity, min_dis, max_dis, min_node_cap, 
-                 max_node_cap, large_value, device, depot_num):
+                 max_num_cars, cars_capacity, min_dis, max_dis, min_node_cap,
+                 max_node_cap, device, depot_num):
         self.buffer = deque(maxlen=capacity)
 
         self.min_num_nodes = min_num_nodes
@@ -22,21 +22,18 @@ class ReplayBuffer:
         self.max_dis = max_dis
         self.min_node_cap = min_node_cap
         self.max_node_cap = max_node_cap
-        self.large_value = large_value
         self.device = device
         self.depot_num = depot_num
 
-    def insert(self, routes_snapshot, acting_key, action, reward, used_snapshot, mdp, gnn_input):
-        # BUGFIX: this used to store only the single acting route, so
-        # train_step's bootstrap target could only ever ask "what's this
-        # route's own best next move", silently assuming no other route acts
-        # in between -- which is false, since select_global_action picks one
-        # global action per environment step across ALL routes. Storing every
-        # route's state at this moment lets the target be computed against
-        # the TRUE next state.
+    def insert(self, routes_snapshot, acting_key, action, reward, used_snapshot, mdp):
+        # BUGFIX (carried over): stores every route's state at this moment,
+        # not just the single acting route -- needed so train_step can later
+        # compute the TRUE global-best next action across all routes, not
+        # just the acting route in isolation. gnn_input is no longer stored
+        # at all -- there's no GNN in this design, so nothing needs it.
         self.buffer.append((
             copy.deepcopy(routes_snapshot), acting_key, action, reward,
-            frozenset(used_snapshot), mdp, gnn_input
+            frozenset(used_snapshot), mdp
         ))
 
     def sample(self, batch_size):
@@ -47,8 +44,7 @@ class ReplayBuffer:
         rewards = [b[3] for b in batch]
         used_sets = [b[4] for b in batch]
         mdps = [b[5] for b in batch]
-        gnn_inputs = [b[6] for b in batch]
-        return routes_snapshots, acting_keys, actions, rewards, used_sets, mdps, gnn_inputs
+        return routes_snapshots, acting_keys, actions, rewards, used_sets, mdps
 
     def generate_random_env(self):
         num_nodes = np.random.randint(self.min_num_nodes, self.max_num_nodes + 1)
@@ -59,17 +55,12 @@ class ReplayBuffer:
         mdp.fill_distance_matrix(self.min_dis, self.max_dis)
         mdp.fill_node_cap_matrix(self.min_node_cap, self.max_node_cap)
 
-        node_feature = GNN.create_node_feature(mdp)
-        edge_feature = GNN.create_edge_feature(mdp)
-        gnn_input = GNN.create_input(node_feature, edge_feature, self.large_value)
-        gnn_input = gnn_input.to(self.device)
+        return mdp
 
-        return mdp, gnn_input
-    
     def full_buffer(self, first_buffer_input):
 
         for _ in range(first_buffer_input):
-            mdp, gnn_input = self.generate_random_env()
+            mdp = self.generate_random_env()
 
             route = {
                 "path": [mdp.depot_num],
@@ -103,7 +94,7 @@ class ReplayBuffer:
                     # collected during actual training episodes will supply
                     # proper multi-route context and quickly dominate the
                     # buffer over this warm-start data.
-                    self.insert({"route0": route}, "route0", new_node, reward, local_used, mdp, gnn_input)
+                    self.insert({"route0": route}, "route0", new_node, reward, local_used, mdp)
 
                     route = apply_action(route, new_node, mdp)
                     local_used.add(new_node)
