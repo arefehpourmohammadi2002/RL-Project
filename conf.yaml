@@ -1,0 +1,62 @@
+problem:
+  seed: 42
+  num_nodes: 10
+  depot_num: 0
+  num_cars: 5
+  cars_capacity: 100
+  max_dis: 10
+  min_dis: 1
+  max_cap: 10
+  min_cap: 1
+
+GNN_input_embedding:
+  node_dim: 1
+  hidden_dim: 20
+  output_dime: 10         
+  edge_dim: 1
+  large_value: 100
+
+graph_transformer:
+  multi_head_attention:
+    num_heads: 1           
+    model_dim: 10           
+  num_layers: 2              
+                           
+  ff_hidden_dim: 30
+
+DQN:
+  epsilon: 0.999 # not great change propabibly due to epoch less
+  epsilon_decay: 0.999
+  rl: 0.05   
+  rl_decay: 0.01  
+  min_rl: 0.0001
+  output_dim: 1
+  hidden_dim: 10
+  num_epoches: 200
+  explore_model_update_step: 5
+  target_model_update_step: 10
+  replay_buff_cap: 5000    
+  replay_buffer_first_size: 2000
+  discount: 0.95 # it does not have any impact ---> probabily due to less epoch in training
+  batch_size: 100
+  max_num_nodes: 10
+  min_num_nodes: 4
+  max_num_cars: 5
+  min_num_cars: 1
+  cars_capacity: 100
+  
+A2C:
+  hidden_dim: 64
+  output_dim: 1
+  lr: 0.003
+  discount: 0.9
+  num_epoches: 1000
+  entropy_coef: 0.01
+
+grid_test:
+  min_nodes: 5
+  max_nodes: 20
+  min_cars: 1
+  max_cars: 5
+  trials_per_cell: 1
+  base_filename: "distnace"

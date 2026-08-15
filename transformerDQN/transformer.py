@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
+import torch
 import math
 import statistics
 
@@ -9,6 +10,7 @@ class Layer(nn.Module):
         self.num_heads = num_heads
         self.model_dim = model_dim
         self.head_dim = model_dim // num_heads
+        
 
         self.Q_matrix = nn.Linear(model_dim, model_dim, bias=False)
         self.K_matrix = nn.Linear(model_dim, model_dim, bias=False)
@@ -56,9 +58,10 @@ class Layer(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self,  num_layers, num_heads, model_dim, FF_hidden_dim):
+    def __init__(self,  num_layers, num_heads, model_dim, FF_hidden_dim, device):
         super().__init__()
 
+        self.device = device
         self.num_layers = num_layers
         self.layers = nn.ModuleList([
             Layer(num_heads, model_dim, FF_hidden_dim) for _ in range(num_layers)
@@ -66,26 +69,35 @@ class Encoder(nn.Module):
 
         self.final_norm = nn.LayerNorm(model_dim)
 
-    def node_average_dis(self,node, mdp):
-        total_dis = (sum(mdp.distance_matrix[node][i] 
-                     for i in range(mdp.num_nodes)  
-                     if i != node and i != mdp.depot_num)) 
-        ave_dis = total_dis / len(total_dis)
-        std_dis = statistics.pstdev(total_dis) 
-        
-        return ave_dis, std_dis, 
-    
-    def input_create(self, mdp):
-        
-        
+    ''' model dim is 5, determined by this function output dimention'''
+    def two_nodes_info(self, distance, node1, node2):
+        dis = self.mdp.distance_matrix[node1][node2]
+
+        node1_ave_dis = self.mdp.distance_matrix_ave[node1]
+        node2_ave_dis = self.mdp.distance_matrix_ave[node2]
+
+        node1_ave_std = self.mdp.distance_matrix_std[node1]
+        node2_ave_std = self.mdp.distance_matrix_std[node2]
+
+        return torch.cat([node1_ave_dis, node1_ave_std, node2_ave_std, node2_ave_dis, distance]
+                  , device=self.device, dtype=torch.float)
+
+    def input_create(self):
+        pair_info = []
+        for i in range(self.mdp.num_nodes):
+            for j in range(i+1, self.mdp.num_nodes):
+                pair_info.append(self.two_nodes_info(self.mdp.distance_matrix[i][j], i, j))
+
+        return torch.stack(pair_info, device=self.device, dtype=torch.float)
 
     def forward(self, mdp):
-        input = self.input_create(mdp)
+        self.mdp = mdp
+        input = self.input_create()
 
         for layer in self.layers:
             input = layer(input)
 
-        input = self.final_norm(input)
-        graph_embedding = input.mean(dim=0)
+        node_embedding = self.final_norm(input)
+        graph_embedding = node_embedding.mean(dim=0)
 
-        return graph_embedding
+        return graph_embedding, node_embedding

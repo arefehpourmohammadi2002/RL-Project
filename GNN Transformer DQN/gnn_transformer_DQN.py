@@ -15,6 +15,7 @@ class DQN:
         self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters 
             self.explore_model.parameters(), 
             self.gnn.parameters(),
+            self.transforemer.parameters(),
             lr=lr
         )
 
