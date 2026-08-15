@@ -27,7 +27,7 @@ epsilon=0.3
 batch_size=20
 RB_capacity=500
 num_first_samples=32
-num_epoches=100
+num_epoches=10
 max_num_nodes=10
 min_num_nodes=5
 depot_num=0
@@ -66,10 +66,10 @@ only_dqn = OnlyDQN(
 
 transformer_dqn = TransformerDQN(
         num_layers=3,
-        num_heads=2,
-        model_dim=6,
+        num_heads=1,
+        model_dim=5,
         FF_hidden_dim=8,
-        input_dim=15,
+        input_dim=20,
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         lr=lr,
@@ -98,6 +98,7 @@ transformer_dqn.DQN_train()
 
 heuristic_trials = []
 only_dqn_trials = []
+transformer_dqn_trials = []
 
 for n_nodes in range(5, 10):
     for n_cars in range(1, 4):
@@ -118,8 +119,15 @@ for n_nodes in range(5, 10):
             only_dqn_trials.append(dqn_total_dis)
             print(dqn_routes)
 
+        trans_dqn_total_dis, trans_dqn_routes = transformer_dqn.evaluate(test_mdp)
+        if len(only_dqn.used) == test_mdp.num_nodes:
+            transformer_dqn_trials.append(trans_dqn_total_dis)
+            print(trans_dqn_routes)
+        
+
 plt.plot(heuristic_trials, label="heuristic")
 plt.plot(only_dqn_trials, label="only dqn")
+plt.plot(transformer_dqn_trials, label="transformer dqn")
 plt.legend()
 plt.savefig("node.png")
 

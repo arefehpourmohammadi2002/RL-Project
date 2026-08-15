@@ -35,15 +35,22 @@ class TransformerDQN(DQN):
         if self.node_embedding == None:
             print("error it must not self.node_embedding mudt bot be none")
         else:
-            sum_unused_nodes = [sum(self.node_embedding[i]) for i in range(mdp.num_nodes) if i not in used ] 
-            return(sum_unused_nodes / len(self.node_embedding))
+            unused_embeddings = [self.node_embedding[i] for i in range(mdp.num_nodes) if i not in used]
+            if not unused_embeddings:
+                sum_unused_nodes = torch.zeros_like(self.node_embedding[0])
+            else:
+                sum_unused_nodes = torch.stack(unused_embeddings).mean(dim=0)
+
+            return sum_unused_nodes
     
     def get_next_node_statics(self, mdp, route, next_node):
         if self.node_embedding == None:
             print("error it must not self.node_embedding mudt bot be none")
         else:
             dis = mdp.distance_matrix[route["current_node"]][next_node]
-            return(self.node_embedding[next_node], dis)
+            dis = torch.tensor([dis], device=self.device, dtype=torch.float)
+            
+            return torch.cat([self.node_embedding[next_node], dis])
     
 
 

@@ -71,16 +71,19 @@ class Encoder(nn.Module):
 
     ''' model dim is 5, determined by this function output dimention'''
     def two_nodes_info(self, distance, node1, node2):
-        dis = self.mdp.distance_matrix[node1][node2]
+        dis = torch.tensor([distance], device=self.device, dtype=torch.float32)
 
-        node1_ave_dis = self.mdp.distance_matrix_ave[node1]
-        node2_ave_dis = self.mdp.distance_matrix_ave[node2]
+        node1_ave_dis = torch.tensor([self.mdp.distance_matrix_ave[node1]], 
+                                     device=self.device, dtype=torch.float32)
+        node2_ave_dis = torch.tensor([self.mdp.distance_matrix_ave[node2]], 
+                                     device=self.device, dtype=torch.float32)
 
-        node1_ave_std = self.mdp.distance_matrix_std[node1]
-        node2_ave_std = self.mdp.distance_matrix_std[node2]
+        node1_cap = torch.tensor([self.mdp.node_demand[node1]], 
+                                 device=self.device, dtype=torch.float32)
+        node2_cap = torch.tensor([self.mdp.node_demand[node2]], 
+                                 device=self.device, dtype=torch.float32)
 
-        return torch.cat([node1_ave_dis, node1_ave_std, node2_ave_std, node2_ave_dis, distance]
-                  , device=self.device, dtype=torch.float)
+        return torch.cat([node1_ave_dis, node1_cap, node2_ave_dis, node2_cap, dis])
 
     def input_create(self):
         pair_info = []
@@ -88,7 +91,7 @@ class Encoder(nn.Module):
             for j in range(i+1, self.mdp.num_nodes):
                 pair_info.append(self.two_nodes_info(self.mdp.distance_matrix[i][j], i, j))
 
-        return torch.stack(pair_info, device=self.device, dtype=torch.float)
+        return torch.stack(pair_info)
 
     def forward(self, mdp):
         self.mdp = mdp
