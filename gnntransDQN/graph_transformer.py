@@ -5,6 +5,10 @@ import math
 class Layer(nn.Module):
     def __init__(self, num_heads, model_dim, FF_hidden_dim):
         super().__init__()
+        if model_dim % num_heads != 0:
+            raise ValueError(
+                "model_dim must be divisible by num_heads"
+            )
         self.num_heads = num_heads
         self.model_dim = model_dim
         self.head_dim = model_dim // num_heads
@@ -59,6 +63,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.num_layers = num_layers
+        self.model_dim = model_dim
         self.layers = nn.ModuleList([
             Layer(num_heads, model_dim, FF_hidden_dim) for _ in range(num_layers)
         ])
@@ -66,6 +71,10 @@ class Encoder(nn.Module):
         self.final_norm = nn.LayerNorm(model_dim)
 
     def forward(self, input):
+        if input.dim() != 2 or input.size(-1) != self.model_dim:
+            raise ValueError(
+                f"graph transformer expects shape (nodes, {self.model_dim})"
+            )
 
         for layer in self.layers:
             input = layer(input)

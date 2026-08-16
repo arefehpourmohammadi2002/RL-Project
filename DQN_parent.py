@@ -6,6 +6,7 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 import replay_buffer as RB
 from MDP import MDP
+from route_local_search import improve_routes
 
 
 class DQNNetwork(nn.Module):
@@ -86,21 +87,66 @@ class DQN(ABC):
         self.lr_history = []
         self.epsilon_history = []
 
+    @staticmethod
+    def _can_pack_demands(demands, capacities):
+        """Fast conservative packing check used to keep actions feasible."""
+        items = sorted(
+            (float(demand) for demand in demands), reverse=True
+        )
+        remaining = [float(capacity) for capacity in capacities]
+
+        if not items:
+            return True
+        if not remaining or items[0] > max(remaining) + 1e-6:
+            return False
+        if sum(items) > sum(remaining) + 1e-6:
+            return False
+
+        for item in items:
+            fitting_bins = [
+                (capacity - item, index)
+                for index, capacity in enumerate(remaining)
+                if capacity + 1e-6 >= item
+            ]
+            if not fitting_bins:
+                return False
+            _space_after, best_index = min(fitting_bins)
+            remaining[best_index] -= item
+
+        return True
+
+    @staticmethod
+    def _distance_scale(mdp):
+        return max(
+            float(sum(mdp.distance_matrix_ave)) / max(mdp.num_nodes, 1),
+            1e-6,
+        )
+
     def new_episode(self):
-        self.num_nodes = random.randint(self.min_num_nodes, self.max_num_nodes)
-        self.num_cars = random.randint(self.min_num_cars, self.max_num_cars)
-        cars_capacity = random.uniform(1, self.cars_capacity)
-
-        mdp = MDP(num_nodes=self.num_nodes, depot_num=self.depot_num,
-                 num_cars=self.num_cars, cars_capacity=cars_capacity)
-
-        mdp.build(min_distance=self.min_distance, max_distance=self.max_distance,
-                 min_node_dem=self.min_node_dem, max_node_dem=self.max_node_dem)
-
-        routes = [self.new_route() for _ in range(self.num_cars)]
-        used = {self.depot_num}
-
-        return routes, mdp, used
+        while True:
+            self.num_nodes = random.randint(self.min_num_nodes, self.max_num_nodes)
+            self.num_cars = random.randint(self.min_num_cars, self.max_num_cars)
+            mdp = MDP(
+                num_nodes=self.num_nodes,
+                depot_num=self.depot_num,
+                num_cars=self.num_cars,
+                cars_capacity=self.cars_capacity,
+            )
+            mdp.build(
+                min_distance=self.min_distance,
+                max_distance=self.max_distance,
+                min_node_dem=self.min_node_dem,
+                max_node_dem=self.max_node_dem,
+            )
+            demands = [
+                mdp.node_demand[node]
+                for node in range(mdp.num_nodes)
+                if node != mdp.depot_num
+            ]
+            capacities = [mdp.cars_capacity] * mdp.num_cars
+            if self._can_pack_demands(demands, capacities):
+                routes = [self.new_route() for _ in range(self.num_cars)]
+                return routes, mdp, {self.depot_num}
 
     def new_route(self):
         return {
@@ -112,12 +158,46 @@ class DQN(ABC):
 
     def get_candidate(self, mdp, route, used):
         remaining_cap = mdp.cars_capacity - route["capacity"]
-        return [i for i in range(mdp.num_nodes) if i not in used and mdp.node_demand[i] <= remaining_cap]
+        return [
+            node
+            for node in range(mdp.num_nodes)
+            if node not in used
+            and node != mdp.depot_num
+            and mdp.node_demand[node] <= remaining_cap + 1e-6
+        ]
+
+    def action_keeps_solution_feasible(
+        self, mdp, routes, route_idx, next_node, used
+    ):
+        remaining_demands = [
+            mdp.node_demand[node]
+            for node in range(mdp.num_nodes)
+            if node not in used
+            and node != next_node
+            and node != mdp.depot_num
+        ]
+        remaining_capacities = [
+            mdp.cars_capacity
+            - route["capacity"]
+            - (mdp.node_demand[next_node] if idx == route_idx else 0.0)
+            for idx, route in enumerate(routes)
+        ]
+        return self._can_pack_demands(
+            remaining_demands, remaining_capacities
+        )
 
     def collect_candidates(self):
         candidate_map = {}
         for route_idx, route in enumerate(self.routes):
-            candidates = self.get_candidate(mdp=self.mdp, route=route, used=self.used)
+            candidates = [
+                node
+                for node in self.get_candidate(
+                    mdp=self.mdp, route=route, used=self.used
+                )
+                if self.action_keeps_solution_feasible(
+                    self.mdp, self.routes, route_idx, node, self.used
+                )
+            ]
             if candidates:
                 candidate_map[route_idx] = candidates
         return candidate_map
@@ -158,8 +238,16 @@ class DQN(ABC):
         if not other_routes:
             return torch.zeros(2, device=self.device, dtype=torch.float32)
 
-        sum_route_dis = sum(r["total_distance"] for r in other_routes)
-        sum_capacity = sum(r["capacity"] for r in other_routes)
+        distance_scale = max(
+            (self.mdp.num_nodes - 1) * self._distance_scale(self.mdp), 1e-6
+        )
+        sum_route_dis = (
+            sum(r["total_distance"] for r in other_routes) / distance_scale
+        )
+        sum_capacity = (
+            sum(r["capacity"] for r in other_routes)
+            / max(self.mdp.cars_capacity, 1e-6)
+        )
 
         ave_dis = torch.tensor([sum_route_dis / len(other_routes)], device=self.device, dtype=torch.float32)
         ave_cap = torch.tensor([sum_capacity / len(other_routes)], device=self.device, dtype=torch.float32)
@@ -167,8 +255,19 @@ class DQN(ABC):
         return torch.cat([ave_dis, ave_cap])
 
     def get_current_route_statics(self, route):
-        total_distance = torch.tensor([route["total_distance"]], device=self.device, dtype=torch.float32)
-        used_cap = torch.tensor([route["capacity"]], device=self.device, dtype=torch.float32)
+        distance_scale = max(
+            (self.mdp.num_nodes - 1) * self._distance_scale(self.mdp), 1e-6
+        )
+        total_distance = torch.tensor(
+            [route["total_distance"] / distance_scale],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        used_cap = torch.tensor(
+            [route["capacity"] / max(self.mdp.cars_capacity, 1e-6)],
+            device=self.device,
+            dtype=torch.float32,
+        )
         return torch.cat([total_distance, used_cap])
 
     def create_input(self, mdp, routes, route, next_node, used, train):
@@ -206,8 +305,16 @@ class DQN(ABC):
         unused_nodes_statics = self.get_unused_nodes_statics(mdp, used)
 
         target_model_input = []
-        for route in routes:
-            candidates = self.get_candidate(mdp=mdp, route=route, used=used)
+        for route_idx, route in enumerate(routes):
+            candidates = [
+                node
+                for node in self.get_candidate(
+                    mdp=mdp, route=route, used=used
+                )
+                if self.action_keeps_solution_feasible(
+                    mdp, routes, route_idx, node, used
+                )
+            ]
             if not candidates:
                 continue
 
@@ -264,14 +371,32 @@ class DQN(ABC):
         loss = self.criterion(explore_result, y)
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.explore_model.parameters(), max_norm=self.max_grad_norm)
+        trainable_parameters = [
+            parameter
+            for group in self.optimizer.param_groups
+            for parameter in group["params"]
+            if parameter.grad is not None
+        ]
+        torch.nn.utils.clip_grad_norm_(
+            trainable_parameters, max_norm=self.max_grad_norm
+        )
         self.optimizer.step()
+
+        self.target_update_counter += 1
+        if self.target_update_counter >= self.target_update_limit:
+            self.target_model.load_state_dict(
+                self.explore_model.state_dict()
+            )
+            self.target_update_counter = 0
 
         self.loss_history.append(loss.item())
 
     def training_episode(self, route_idx, next_node):
         route = self.routes[route_idx]
-        reward = -1 * self.mdp.distance_matrix[route["current_node"]][next_node]
+        reward = (
+            -self.mdp.distance_matrix[route["current_node"]][next_node]
+            / self._distance_scale(self.mdp)
+        )
 
         self.replay_buffer.insert(mdp=self.mdp, routes=self.routes, route_idx=route_idx,
                                   next_node=next_node, reward=reward, used=self.used)
@@ -280,11 +405,6 @@ class DQN(ABC):
         if self.explore_update_counter >= self.explore_update_limit and self.replay_buffer.size() >= self.batch_size:
             self.train_step()
             self.explore_update_counter = 0
-
-        self.target_update_counter += 1
-        if self.target_update_counter >= self.target_update_limit:
-            self.target_model.load_state_dict(self.explore_model.state_dict())
-            self.target_update_counter = 0
 
     def policy(self, train, candidate_map):
         if train and random.random() <= self.epsilon:
@@ -321,7 +441,10 @@ class DQN(ABC):
         for route_idx, route in enumerate(self.routes):
             if route["current_node"] != self.mdp.depot_num:
                 if not self.get_candidate(mdp=self.mdp, route=route, used=self.used):
-                    reward = -1 * self.mdp.distance_matrix[route["current_node"]][self.mdp.depot_num]
+                    reward = (
+                        -self.mdp.distance_matrix[route["current_node"]][self.mdp.depot_num]
+                        / self._distance_scale(self.mdp)
+                    )
 
                     if training:
                         self.replay_buffer.insert(mdp=self.mdp, routes=self.routes, route_idx=route_idx,
@@ -356,7 +479,10 @@ class DQN(ABC):
             next_node = random.choice(candidate_map[route_idx])
 
             route = self.routes[route_idx]
-            reward = -1 * self.mdp.distance_matrix[route["current_node"]][next_node]
+            reward = (
+                -self.mdp.distance_matrix[route["current_node"]][next_node]
+                / self._distance_scale(self.mdp)
+            )
             self.replay_buffer.insert(mdp=self.mdp, routes=self.routes, route_idx=route_idx,
                                       next_node=next_node, reward=reward, used=self.used)
 
@@ -366,11 +492,13 @@ class DQN(ABC):
             i += 1
 
     def full_replay_buffer(self, num_first_samples):
-        max_sample_of_one_env = random.randint(2, max(num_first_samples, num_first_samples//10))
-        while self.replay_buffer.size() < num_first_samples:
-            self.run_random_episode(max_sample_of_one_env)
-        for snap in self.replay_buffer.replay_buffer:
-            print(snap.route_idx, snap.next_node, snap.reward)
+        warmup_size = max(num_first_samples, self.batch_size)
+        if warmup_size > self.RB_capacity:
+            raise ValueError(
+                "RB_capacity must be at least the replay warmup size"
+            )
+        while self.replay_buffer.size() < warmup_size:
+            self.run_random_episode(max(4, self.batch_size // 4))
 
     def prepare_replay_buffer(self): 
         self.replay_buffer = RB.ReplayBuffer(capacity=self.RB_capacity)
@@ -408,6 +536,9 @@ class DQN(ABC):
         self.routes = [self.new_route() for _ in range(mdp.num_cars)]
         self.used = {self.depot_num}
         self.run_episode(train=False)
-        total_distance = sum(route["total_distance"] for route in self.routes)
+        self.routes = improve_routes(self.routes, mdp)
+        total_distance = sum(
+            route["total_distance"] for route in self.routes
+        )
 
         return total_distance, self.routes

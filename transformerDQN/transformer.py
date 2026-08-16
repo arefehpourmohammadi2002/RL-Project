@@ -7,6 +7,10 @@ import statistics
 class Layer(nn.Module):
     def __init__(self, num_heads, model_dim, FF_hidden_dim):
         super().__init__()
+        if model_dim % num_heads != 0:
+            raise ValueError(
+                "model_dim must be divisible by num_heads"
+            )
         self.num_heads = num_heads
         self.model_dim = model_dim
         self.head_dim = model_dim // num_heads
@@ -71,25 +75,38 @@ class Encoder(nn.Module):
 
     ''' model dim is 5, determined by this function output dimention'''
     def two_nodes_info(self, distance, node1, node2):
-        dis = torch.tensor([distance], device=self.device, dtype=torch.float32)
-
-        node1_ave_dis = torch.tensor([self.mdp.distance_matrix_ave[node1]], 
-                                     device=self.device, dtype=torch.float32)
-        node2_ave_dis = torch.tensor([self.mdp.distance_matrix_ave[node2]], 
-                                     device=self.device, dtype=torch.float32)
-
-        node1_cap = torch.tensor([self.mdp.node_demand[node1]], 
-                                 device=self.device, dtype=torch.float32)
-        node2_cap = torch.tensor([self.mdp.node_demand[node2]], 
-                                 device=self.device, dtype=torch.float32)
-
-        return torch.cat([node1_ave_dis, node1_cap, node2_ave_dis, node2_cap, dis])
+        distance_scale = max(
+            float(sum(self.mdp.distance_matrix_ave))
+            / max(self.mdp.num_nodes, 1),
+            1e-6,
+        )
+        capacity_scale = max(float(self.mdp.cars_capacity), 1e-6)
+        return torch.tensor(
+            [
+                self.mdp.distance_matrix_ave[node1] / distance_scale,
+                self.mdp.node_demand[node1] / capacity_scale,
+                self.mdp.distance_matrix_ave[node2] / distance_scale,
+                self.mdp.node_demand[node2] / capacity_scale,
+                distance / distance_scale,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
 
     def input_create(self):
+        if self.mdp.num_nodes < 2:
+            raise ValueError("Transformer encoder needs at least two nodes")
+
         pair_info = []
+        self.pair_nodes = []
         for i in range(self.mdp.num_nodes):
-            for j in range(i+1, self.mdp.num_nodes):
-                pair_info.append(self.two_nodes_info(self.mdp.distance_matrix[i][j], i, j))
+            for j in range(i + 1, self.mdp.num_nodes):
+                pair_info.append(
+                    self.two_nodes_info(
+                        self.mdp.distance_matrix[i][j], i, j
+                    )
+                )
+                self.pair_nodes.append((i, j))
 
         return torch.stack(pair_info)
 
@@ -100,7 +117,30 @@ class Encoder(nn.Module):
         for layer in self.layers:
             input = layer(input)
 
-        node_embedding = self.final_norm(input)
+        pair_embedding = self.final_norm(input)
+
+        node_indices = torch.tensor(
+            self.pair_nodes,
+            device=self.device,
+            dtype=torch.long,
+        ).reshape(-1)
+        repeated_pairs = pair_embedding.repeat_interleave(2, dim=0)
+        node_embedding = torch.zeros(
+            self.mdp.num_nodes,
+            pair_embedding.size(-1),
+            device=self.device,
+            dtype=pair_embedding.dtype,
+        ).index_add(0, node_indices, repeated_pairs)
+        counts = torch.zeros(
+            self.mdp.num_nodes,
+            device=self.device,
+            dtype=pair_embedding.dtype,
+        ).index_add(
+            0,
+            node_indices,
+            torch.ones_like(node_indices, dtype=pair_embedding.dtype),
+        )
+        node_embedding = node_embedding / counts.clamp_min(1.0).unsqueeze(-1)
         graph_embedding = node_embedding.mean(dim=0)
 
         return graph_embedding, node_embedding

@@ -1,26 +1,81 @@
 output_dim: 1
-hidden_dim: 32
-lr: 0.003
-lr_decay: 0.9
-min_lr: 0.0005
+hidden_dim: 64
+lr: 0.001
+lr_decay: 0.99
+min_lr: 0.0001
 target_update_counter: 10
-explore_update_counter: 2
-discount: 0.95
-epsilon: 0.99
-epsilon_decay: 0.9
-min_epsilon: 0.01
-batch_size: 64
+explore_update_counter: 1
+discount: 1.0
+epsilon: 1.0
+epsilon_decay: 0.97
+min_epsilon: 0.05
+batch_size: 32
 RB_capacity: 5000
-num_first_samples: 5
-num_epoches: 200
-max_num_nodes: 40
-min_num_nodes: 5
+num_first_samples: 64
+num_epoches: 60
+max_num_nodes: 20
+min_num_nodes: 9
 depot_num: 0
-max_num_cars: 5
-min_num_cars: 3
-cars_capacity: 15.0
-min_distance: 1.0
+max_num_cars: 4
+min_num_cars: 4
+cars_capacity: 100.0
+min_distance: 3.0
 max_distance: 10.0
-min_node_dem: 1.0
-max_node_dem: 4.0
-max_grad_norm: 1000.0
+min_node_dem: 10.0
+max_node_dem: 30.0
+max_grad_norm: 10.0
+
+comparison:
+  seed: 42
+  trials_per_point: 5
+  depot_num: 0
+  cars_capacity: 100.0
+  min_distance: 3.0
+  max_distance: 10.0
+  min_node_demand: 10.0
+  max_node_demand: 30.0
+  training_min_nodes: 9
+  training_max_nodes: 20
+  training_min_cars: 4
+  training_max_cars: 4
+  hidden_dim: 64
+  node_sweep:
+    min_nodes: 9
+    max_nodes: 20
+    step: 1
+    fixed_cars: 4
+    output_file: comparison_by_nodes.png
+  car_sweep:
+    min_cars: 3
+    max_cars: 6
+    step: 1
+    fixed_nodes: 15
+    output_file: comparison_by_cars.png
+  checkpoints:
+    only_dqn: only_dqn_checkpoint.pt
+    gnn_dqn: gnn_dqn_checkpoint.pt
+    transformer_dqn: transformer_dqn_checkpoint.pt
+    gnn_transformer_dqn: gnn_transformer_dqn_checkpoint.pt
+  gnn_dqn:
+    input_dim: 3
+    hidden_dim: 16
+    embedding_dim: 8
+    large_value: 100.0
+  transformer_dqn:
+    num_layers: 3
+    num_heads: 1
+    model_dim: 5
+    feed_forward_dim: 16
+  gnn_transformer_dqn:
+    gnn_input_dim: 3
+    gnn_hidden_dim: 16
+    gnn_output_dim: 8
+    large_value: 100.0
+    num_layers: 3
+    num_heads: 2
+    model_dim: 8
+    feed_forward_dim: 24
+  plot:
+    width: 8
+    height: 5
+    dpi: 150

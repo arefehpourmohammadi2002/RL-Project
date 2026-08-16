@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import torch
 import yaml
 
 from onlyDQN.only_DQN import OnlyDQN
@@ -26,7 +27,7 @@ hidden_dim = config["hidden_dim"]
 lr = config["lr"]
 lr_decay = config["lr_decay"]
 min_lr = config["min_lr"]
-target_update_counter = config["explore_update_counter"]
+target_update_counter = config["target_update_counter"]
 explore_update_counter = config["explore_update_counter"]
 discount = config["discount"]
 epsilon = config["epsilon"]
@@ -51,10 +52,10 @@ max_grad_norm = config["max_grad_norm"]
 
 gnn_dqn = GNNDQN(
         input_dim_gnn=3,
-        gnn_hidden_dim=5,
-        gnn_output_dim=7,
+        gnn_hidden_dim=16,
+        gnn_output_dim=11,
         large_value=100,
-        input_dim=17,
+        input_dim=29,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
@@ -85,27 +86,34 @@ gnn_dqn = GNNDQN(
     )
 
 gnn_dqn.DQN_train()
+torch.save(
+    {
+        "explore_model": gnn_dqn.explore_model.state_dict(),
+        "gnn": gnn_dqn.gnn.state_dict(),
+    },
+    config["comparison"]["checkpoints"]["gnn_dqn"],
+)
+
 
 
 heuristic_trials = []
 gnn_dqn_trials = []
 
 
-for n_nodes in range(5, 10):
-    for n_cars in range(1, 4):
-        test_mdp = MDP(n_nodes, 0, n_cars, 100)
-        test_mdp.fill_distance_matrix(3, 10)
-        test_mdp.fill_node_dem_matrix(10, 30)
+for n_nodes in range(min_num_nodes, min(max_num_nodes + 1, min_num_nodes + 5)):
+    for n_cars in range(min_num_cars, max_num_cars + 1):
+        test_mdp = MDP(n_nodes, depot_num, n_cars, cars_capacity)
+        test_mdp.fill_distance_matrix(min_distance, max_distance)
+        test_mdp.fill_node_dem_matrix(min_node_dem, max_node_dem)
 
         cws = ClarkeWrightSavings(test_mdp)
         feasible = cws.CWS_solve()
-        print("neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeew")
         if feasible:
             heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
             heuristic_trials.append(heuristic_trial_dis)
             print(cws.list_routes)
         else:
-            heuristic_trials.append(200)
+            continue
 
 
 
@@ -115,12 +123,11 @@ for n_nodes in range(5, 10):
             gnn_dqn_trials.append(gnn_dqn_total_dis)
             print(gnn_dqn_routes)
         else:
-            gnn_dqn_trials.append(200)
+            raise RuntimeError("GNNDQN failed to visit every customer")
 
 
 plt.plot(heuristic_trials, label="heuristic")
-plt.plot(gnn_dqn_trials, label="gnn dqn")
+plt.plot(gnn_dqn_trials, label="gnn dqn + local search")
 
 plt.legend()
 plt.savefig("gnn_node.png")
-

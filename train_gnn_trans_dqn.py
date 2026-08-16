@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import torch
 import yaml
 
 from onlyDQN.only_DQN import OnlyDQN
@@ -24,10 +25,14 @@ with open("conf.yaml", "r") as file:
 output_dim = config["output_dim"]
 hidden_dim = config["hidden_dim"]
 lr = config["lr"]
-target_update_counter = config["explore_update_counter"]
+lr_decay = config["lr_decay"]
+min_lr = config["min_lr"]
+target_update_counter = config["target_update_counter"]
 explore_update_counter = config["explore_update_counter"]
 discount = config["discount"]
 epsilon = config["epsilon"]
+epsilon_decay = config["epsilon_decay"]
+min_epsilon = config["min_epsilon"]
 batch_size = config["batch_size"]
 RB_capacity = config["RB_capacity"]
 num_first_samples = config["num_first_samples"]
@@ -42,26 +47,31 @@ min_distance = config["min_distance"]
 max_distance = config["max_distance"]
 min_node_dem = config["min_node_dem"]
 max_node_dem = config["max_node_dem"]
+max_grad_norm = config["max_grad_norm"]
 
 
 gnn_trans_dqn = GNNTransDQN(
-        input_dim_gnn=3, 
-        gnn_hidden_dim=5, 
-        gnn_output_dim=7, 
+        input_dim_gnn=3,
+        gnn_hidden_dim=16,
+        gnn_output_dim=11,
         large_value=100,
-        num_layers=3,  
-        num_heads=2, 
-        model_dim=4, 
-        FF_hidden_dim=10,
-        input_dim=17,
+        num_layers=3,
+        num_heads=2,
+        model_dim=8,
+        FF_hidden_dim=24,
+        input_dim=29,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
         lr=lr,
+        lr_decay=lr_decay,
+        min_lr=min_lr,
         target_update_counter=target_update_counter,
         explore_update_counter=explore_update_counter,
         discount=discount,
         epsilon=epsilon,
+        epsilon_decay=epsilon_decay,
+        min_epsilon=min_epsilon,
         batch_size=batch_size,
         RB_capacity=RB_capacity,
         num_first_samples=num_first_samples,
@@ -75,42 +85,50 @@ gnn_trans_dqn = GNNTransDQN(
         min_distance=min_distance,
         max_distance=max_distance,
         min_node_dem=min_node_dem,
-        max_node_dem=max_node_dem
+        max_node_dem=max_node_dem,
+        max_grad_norm=max_grad_norm
     )
 
 
 
 gnn_trans_dqn.DQN_train()
+torch.save(
+    {
+        "explore_model": gnn_trans_dqn.explore_model.state_dict(),
+        "gnn": gnn_trans_dqn.gnn.state_dict(),
+        "transformer": gnn_trans_dqn.transforemer.state_dict(),
+    },
+    config["comparison"]["checkpoints"]["gnn_transformer_dqn"],
+)
+
 
 
 heuristic_trials = []
 gnn_trans_dqn_trials = []
 
-for n_nodes in range(5, 10):
-    for n_cars in range(1, 4):
-        test_mdp = MDP(n_nodes, 0, n_cars, 100)
-        test_mdp.fill_distance_matrix(3, 10)
-        test_mdp.fill_node_dem_matrix(10, 30)
+for n_nodes in range(min_num_nodes, min(max_num_nodes + 1, min_num_nodes + 5)):
+    for n_cars in range(min_num_cars, max_num_cars + 1):
+        test_mdp = MDP(n_nodes, depot_num, n_cars, cars_capacity)
+        test_mdp.fill_distance_matrix(min_distance, max_distance)
+        test_mdp.fill_node_dem_matrix(min_node_dem, max_node_dem)
 
         cws = ClarkeWrightSavings(test_mdp)
         feasible = cws.CWS_solve()
-        print("neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeew")
         if feasible:
             heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
             heuristic_trials.append(heuristic_trial_dis)
             print(cws.list_routes)
         else:
-            heuristic_trials.append(200)
+            continue
 
         gnn_trans_dqn_total_dis, gnn_trans_dqn_routes = gnn_trans_dqn.evaluate(test_mdp)
         if len(gnn_trans_dqn.used) == test_mdp.num_nodes:
             gnn_trans_dqn_trials.append(gnn_trans_dqn_total_dis)
             print(gnn_trans_dqn_routes)
         else:
-            gnn_trans_dqn_trials.append(200)
+            raise RuntimeError("GNNTransDQN failed to visit every customer")
 
 plt.plot(heuristic_trials, label="heuristic")
-plt.plot(gnn_trans_dqn_trials, label="gnn trans dqn")
+plt.plot(gnn_trans_dqn_trials, label="gnn trans dqn + local search")
 plt.legend()
 plt.savefig("gnn_trans_node.png")
-

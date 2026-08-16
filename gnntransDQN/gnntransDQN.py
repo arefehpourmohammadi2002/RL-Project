@@ -11,8 +11,22 @@ import replay_buffer as RB
 
 class GNNTransDQN(DQN):
     def __init__(self, input_dim_gnn, gnn_hidden_dim, gnn_output_dim, num_layers, large_value, num_heads, model_dim, FF_hidden_dim, **parent_variebles):
+        embedding_dim = gnn_output_dim - 3
+        if model_dim != embedding_dim:
+            raise ValueError(
+                f"model_dim must equal the GNN embedding dimension "
+                f"({embedding_dim}), got {model_dim}"
+            )
+        expected_input_dim = 3 * embedding_dim + 5
+        if parent_variebles.get("input_dim") != expected_input_dim:
+            raise ValueError(
+                f"GNNTransDQN expects input_dim={expected_input_dim}, "
+                f"got {parent_variebles.get('input_dim')}"
+            )
         super().__init__(**parent_variebles)
 
+        self.graph_embedding = None
+        self.node_embedding = None
         self.gnn = SimpleGNN(input_dim=input_dim_gnn, hidden_dim=gnn_hidden_dim, 
                         output_dim=gnn_output_dim, device=self.device,
                         large_value=large_value)
@@ -43,29 +57,27 @@ class GNNTransDQN(DQN):
         return self.graph_embedding
     
     def get_unused_nodes_statics(self, mdp, used):
-        if self.node_embedding == None:
-            print("error it must not self.node_embedding mudt bot be none")
-        else:
-            unused_embeddings = [self.node_embedding[i] for i in range(mdp.num_nodes) if i not in used]
-            if not unused_embeddings:
-                sum_unused_nodes = torch.zeros_like(self.node_embedding[0], device=self.device, dtype=torch.float)
-            else:
-                sum_unused_nodes = torch.stack(unused_embeddings).mean(dim=0)
+        if self.node_embedding is None:
+            raise RuntimeError("node embeddings must be created first")
 
-            return sum_unused_nodes
+        unused_embeddings = [
+            self.node_embedding[i]
+            for i in range(mdp.num_nodes)
+            if i not in used
+        ]
+        if not unused_embeddings:
+            return torch.zeros_like(self.node_embedding[0])
+        return torch.stack(unused_embeddings).mean(dim=0)
     
     def get_next_node_statics(self, mdp, route, next_node):
-        if self.node_embedding == None:
-            print("error it must not self.node_embedding mudt bot be none")
-        else:
-            dis = mdp.distance_matrix[route["current_node"]][next_node]
-            dis = torch.tensor([dis], device=self.device, dtype=torch.float)
-            
-            return torch.cat([self.node_embedding[next_node], dis])
-    
+        if self.node_embedding is None:
+            raise RuntimeError("node embeddings must be created first")
 
-
-
-
-
-            
+        distance = (
+            mdp.distance_matrix[route["current_node"]][next_node]
+            / self._distance_scale(mdp)
+        )
+        distance = torch.tensor(
+            [distance], device=self.device, dtype=torch.float32
+        )
+        return torch.cat([self.node_embedding[next_node], distance])
