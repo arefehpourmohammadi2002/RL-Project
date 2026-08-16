@@ -14,6 +14,8 @@ class TransformerDQN(DQN):
 
         self.transforemer = Encoder(num_layers=num_layers, num_heads=num_heads, 
                                     model_dim=model_dim, FF_hidden_dim=FF_hidden_dim, device=self.device)
+
+        self.transforemer.to(self.device)
         self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters 
             chain(self.explore_model.parameters(), 
             self.transforemer.parameters()),

@@ -34,11 +34,16 @@ class OnlyDQN(DQN):
 
         return torch.cat([num_nod, ave_dis, std_dis, car_cap, dem_ave, dem_std])
 
-    def get_unused_nodes_statics(self, mdp, unused):
-        unused_list = list(unused)
+    def get_unused_nodes_statics(self, mdp, used):
+        unused = self.get_unused_nodes(mdp=mdp, used=used)
+
         frac_unused = torch.tensor([len(unused) / mdp.num_nodes], device=self.device, dtype=torch.float32)
-        ave_unused_cap = torch.tensor([sum(mdp.node_demand[unused_list]) / len(unused)], 
-                                      device=self.device, dtype=torch.float32)
+
+        if unused:
+            ave_unused_cap = torch.tensor([sum(mdp.node_demand[i] for i in unused) / len(unused)],
+                                        device=self.device, dtype=torch.float32)
+        else:
+            ave_unused_cap = torch.zeros(1, device=self.device, dtype=torch.float32)
 
         return torch.cat([frac_unused, ave_unused_cap])
 
