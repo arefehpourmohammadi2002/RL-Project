@@ -75,7 +75,7 @@ class GNNTransDQN(DQN):
 
         distance = (
             mdp.distance_matrix[route["current_node"]][next_node]
-            / self._distance_scale(mdp)
+            / self.distance_scale(mdp)
         )
         distance = torch.tensor(
             [distance], device=self.device, dtype=torch.float32

@@ -45,7 +45,7 @@ def build_instance(rng, num_nodes, num_cars, comparison):
             for node in range(mdp.num_nodes)
             if node != mdp.depot_num
         ]
-        if not DQN._can_pack_demands(
+        if not DQN.can_pack_demands(
             demands, [mdp.cars_capacity] * mdp.num_cars
         ):
             continue
@@ -164,30 +164,39 @@ car_values = list(
 trials = comparison["trials_per_point"]
 rng = random.Random(comparison["seed"])
 
-node_instances = {
-    value: [
-        build_instance(
-            rng,
-            value,
-            comparison["node_sweep"]["fixed_cars"],
-            comparison,
-        )
-        for _trial in range(trials)
-    ]
-    for value in node_values
-}
-car_instances = {
-    value: [
-        build_instance(
-            rng,
-            comparison["car_sweep"]["fixed_nodes"],
-            value,
-            comparison,
-        )
-        for _trial in range(trials)
-    ]
-    for value in car_values
-}
+TEST_MDPS = None
+
+node_instances = {}
+car_instances = {}
+if TEST_MDPS is None:
+    node_instances = {
+        value: [
+            build_instance(
+                rng,
+                value,
+                comparison["node_sweep"]["fixed_cars"],
+                comparison,
+            )
+            for _trial in range(trials)
+        ]
+        for value in node_values
+    }
+    car_instances = {
+        value: [
+            build_instance(
+                rng,
+                comparison["car_sweep"]["fixed_nodes"],
+                value,
+                comparison,
+            )
+            for _trial in range(trials)
+        ]
+        for value in car_values
+    }
+else:
+
+    node_instances = TEST_MDPS.get("nodes", {})
+    car_instances = TEST_MDPS.get("cars", {})
 
 for sweep_name, values, instances, output_file, x_label in [
     (
@@ -230,7 +239,12 @@ for sweep_name, values, instances, output_file, x_label in [
         for value in values:
             distances = []
             for mdp, _heuristic_distance in instances[value]:
-                distance, routes = model.evaluate(mdp)
+                model.mdp = mdp
+                model.routes = [model.new_route() for _ in range(mdp.num_cars)]
+                model.used = {mdp.depot_num}
+                model.run_episode(train=False)
+
+                routes = model.routes
                 customers = sorted(
                     node
                     for route in routes
@@ -238,21 +252,15 @@ for sweep_name, values, instances, output_file, x_label in [
                     if node != mdp.depot_num
                 )
                 if customers != list(range(1, mdp.num_nodes)):
-                    raise RuntimeError(
-                        f"{name} returned an invalid solution"
-                    )
-                distances.append(float(distance))
+                    raise RuntimeError(f"{name} returned an invalid solution")
+                distances.append(float(sum(route["total_distance"] for route in routes)))
             model_means.append(np.mean(distances))
             model_all.extend(distances)
 
         model_all = np.asarray(model_all)
         gaps = 100.0 * (model_all - heuristic_all) / heuristic_all
-        print(
-            f"{sweep_name:5s} {name:20s} "
-            f"mean gap={np.mean(gaps):+.2f}%  "
-            f"win rate={100.0 * np.mean(model_all < heuristic_all):.1f}%"
-        )
-        plt.plot(values, model_means, marker="o", label=f"{name} + local search")
+
+        plt.plot(values, model_means, marker="o", label=f"{name}")
 
     plt.xlabel(x_label)
     plt.ylabel("Mean total distance")

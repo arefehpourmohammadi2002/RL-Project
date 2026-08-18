@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import torch
 import yaml
 
-from onlyDQN.only_DQN import OnlyDQN
 from transformerDQN.transformer_DQN import TransformerDQN
 from GNNDQN.gnn_DQN import GNNDQN
 from gnntransDQN.gnntransDQN import GNNTransDQN

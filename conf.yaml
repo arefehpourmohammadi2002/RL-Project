@@ -53,6 +53,10 @@ comparison:
     output_file: comparison_by_cars.png
   checkpoints:
     only_dqn: only_dqn_checkpoint.pt
+    only_a2c: only_a2c_checkpoint.pt
+    gnn_a2c: gnn_a2c_checkpoint.pt
+    transformer_a2c: transformer_a2c_checkpoint.pt
+    gnn_transformer_a2c: gnn_transformer_a2c_checkpoint.pt
     gnn_dqn: gnn_dqn_checkpoint.pt
     transformer_dqn: transformer_dqn_checkpoint.pt
     gnn_transformer_dqn: gnn_transformer_dqn_checkpoint.pt

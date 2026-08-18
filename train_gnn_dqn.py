@@ -2,12 +2,11 @@ import matplotlib.pyplot as plt
 import torch
 import yaml
 
-from onlyDQN.only_DQN import OnlyDQN
-from transformerDQN.transformer_DQN import TransformerDQN
 from GNNDQN.gnn_DQN import GNNDQN
 from gnntransDQN.gnntransDQN import GNNTransDQN
 from heuristic import ClarkeWrightSavings
 from MDP import MDP
+
 
 def total_dis(routes, mdp):
     overall_total_dis = 0
@@ -19,9 +18,12 @@ def total_dis(routes, mdp):
         route_distance += mdp.distance_matrix[route[-1]][mdp.depot_num]
         overall_total_dis += route_distance
     return overall_total_dis
+
+
 with open("conf.yaml", "r") as file:
     config = yaml.safe_load(file)
 
+# common hyperparameters (used to construct models)
 output_dim = config["output_dim"]
 hidden_dim = config["hidden_dim"]
 lr = config["lr"]
@@ -49,57 +51,60 @@ min_node_dem = config["min_node_dem"]
 max_node_dem = config["max_node_dem"]
 max_grad_norm = config["max_grad_norm"]
 
+common = {
+    "output_dim": output_dim,
+    "hidden_dim": hidden_dim,
+    "lr": lr,
+    "lr_decay": lr_decay,
+    "min_lr": min_lr,
+    "target_update_counter": target_update_counter,
+    "explore_update_counter": explore_update_counter,
+    "discount": discount,
+    "epsilon": epsilon,
+    "epsilon_decay": epsilon_decay,
+    "min_epsilon": min_epsilon,
+    "batch_size": batch_size,
+    "RB_capacity": RB_capacity,
+    "num_first_samples": num_first_samples,
+    "num_epoches": num_epoches,
+    "min_num_nodes": min_num_nodes,
+    "max_num_nodes": max_num_nodes,
+    "depot_num": depot_num,
+    "min_num_cars": min_num_cars,
+    "max_num_cars": max_num_cars,
+    "cars_capacity": cars_capacity,
+    "min_distance": min_distance,
+    "max_distance": max_distance,
+    "min_node_dem": min_node_dem,
+    "max_node_dem": max_node_dem,
+    "max_grad_norm": max_grad_norm,
+}
 
+# instantiate GNNDQN only (train script pattern matches other train_* files)
+comp = config.get("comparison", {})
+gnn_conf = comp.get("gnn_dqn", {})
 gnn_dqn = GNNDQN(
-        input_dim_gnn=3,
-        gnn_hidden_dim=16,
-        gnn_output_dim=11,
-        large_value=100,
-        input_dim=29,
+    input_dim_gnn=gnn_conf.get("input_dim", 3),
+    gnn_hidden_dim=gnn_conf.get("hidden_dim", 16) if gnn_conf.get("hidden_dim") is None else gnn_conf.get("hidden_dim", 16),
+    gnn_output_dim=gnn_conf.get("embedding_dim", 8) + 3 if gnn_conf.get("embedding_dim") is not None else gnn_conf.get("gnn_output_dim", 11),
+    large_value=gnn_conf.get("large_value", 100),
+    input_dim=3 * (gnn_conf.get("embedding_dim", 8)) + 5,
+    **common,
+)
 
-        output_dim=output_dim,
-        hidden_dim=hidden_dim,
-        lr=lr,
-        lr_decay=lr_decay,
-        min_lr=min_lr,
-        target_update_counter=target_update_counter,
-        explore_update_counter=explore_update_counter,
-        discount=discount,
-        epsilon=epsilon,
-        min_epsilon=min_epsilon,
-        epsilon_decay=epsilon_decay,
-        batch_size=batch_size,
-        RB_capacity=RB_capacity,
-        num_first_samples=num_first_samples,
-        num_epoches=num_epoches,
-        max_num_nodes=max_num_nodes,
-        min_num_nodes=min_num_nodes,
-        depot_num=depot_num,
-        max_num_cars=max_num_cars,
-        min_num_cars=min_num_cars,
-        cars_capacity=cars_capacity,
-        min_distance=min_distance,
-        max_distance=max_distance,
-        min_node_dem=min_node_dem,
-        max_node_dem=max_node_dem,
-        max_grad_norm=max_grad_norm
-    )
-
+# Train and save
 gnn_dqn.DQN_train()
 torch.save(
     {
         "explore_model": gnn_dqn.explore_model.state_dict(),
-        "gnn": gnn_dqn.gnn.state_dict(),
+        "gnn": gnn_dqn.gnn.state_dict() if hasattr(gnn_dqn, "gnn") else None,
     },
     config["comparison"]["checkpoints"]["gnn_dqn"],
 )
 
-
-
+# Evaluation for the trained GNNDQN (no local search)
 heuristic_trials = []
-gnn_dqn_trials = []
-
-
+gnn_trials = []
 for n_nodes in range(min_num_nodes, min(max_num_nodes + 1, min_num_nodes + 5)):
     for n_cars in range(min_num_cars, max_num_cars + 1):
         test_mdp = MDP(n_nodes, depot_num, n_cars, cars_capacity)
@@ -108,26 +113,22 @@ for n_nodes in range(min_num_nodes, min(max_num_nodes + 1, min_num_nodes + 5)):
 
         cws = ClarkeWrightSavings(test_mdp)
         feasible = cws.CWS_solve()
-        if feasible:
-            heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
-            heuristic_trials.append(heuristic_trial_dis)
-            print(cws.list_routes)
-        else:
+        if not feasible:
             continue
 
+        heuristic_trial_dis = total_dis(cws.list_routes, test_mdp)
+        heuristic_trials.append(heuristic_trial_dis)
+        print("Heuristic routes:", cws.list_routes)
 
-
-
-        gnn_dqn_total_dis, gnn_dqn_routes = gnn_dqn.evaluate(test_mdp)
+        gnn_total_dis, gnn_routes = gnn_dqn.evaluate(test_mdp)
         if len(gnn_dqn.used) == test_mdp.num_nodes:
-            gnn_dqn_trials.append(gnn_dqn_total_dis)
-            print(gnn_dqn_routes)
+            gnn_trials.append(gnn_total_dis)
+            print(gnn_routes)
         else:
             raise RuntimeError("GNNDQN failed to visit every customer")
 
-
 plt.plot(heuristic_trials, label="heuristic")
-plt.plot(gnn_dqn_trials, label="gnn dqn + local search")
+plt.plot(gnn_trials, label="gnn dqn")
 
 plt.legend()
 plt.savefig("gnn_node.png")

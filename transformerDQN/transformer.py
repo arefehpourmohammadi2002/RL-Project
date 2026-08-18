@@ -73,7 +73,6 @@ class Encoder(nn.Module):
 
         self.final_norm = nn.LayerNorm(model_dim)
 
-    ''' model dim is 5, determined by this function output dimention'''
     def two_nodes_info(self, distance, node1, node2):
         distance_scale = max(
             float(sum(self.mdp.distance_matrix_ave))

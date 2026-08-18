@@ -12,7 +12,6 @@ from MDP import MDP
 
 
 class SavingsQNetwork(nn.Module):
-    """Q-network initialized with an objective-aligned insertion policy."""
 
     def __init__(self, input_dim, hidden_dim, marginal_cost_index):
         super().__init__()
@@ -60,13 +59,12 @@ class OnlyDQN(DQN):
         self.criterion = nn.SmoothL1Loss()
 
     @staticmethod
-    def _distance_scale(mdp):
+    def distance_scale(mdp):
         distances = mdp.distance_matrix[~np.eye(mdp.num_nodes, dtype=bool)]
         return max(float(np.mean(distances)), 1e-6)
 
     @staticmethod
-    def _marginal_cost(mdp, route, next_node):
-        """Increase in route length while preserving its implicit depot return."""
+    def marginal_cost(mdp, route, next_node):
         current = route["current_node"]
         depot = mdp.depot_num
         return (
@@ -76,7 +74,6 @@ class OnlyDQN(DQN):
         )
 
     def new_episode(self):
-        """Generate a feasible instance instead of training on impossible VRPs."""
         num_nodes = random.randint(self.min_num_nodes, self.max_num_nodes)
         num_cars = random.randint(self.min_num_cars, self.max_num_cars)
         mdp = MDP(num_nodes, self.depot_num, num_cars, self.cars_capacity)
@@ -91,7 +88,7 @@ class OnlyDQN(DQN):
             for i in range(num_nodes)
             if i != mdp.depot_num
         ]
-        if not self._can_pack_demands(
+        if not self.can_pack_demands(
             demands, [mdp.cars_capacity] * num_cars
         ):
             return self.new_episode()
@@ -101,8 +98,7 @@ class OnlyDQN(DQN):
         return [self.new_route() for _ in range(num_cars)], mdp, {self.depot_num}
 
     @staticmethod
-    def _can_pack_demands(demands, capacities):
-        """Fast conservative packing check used to keep actions feasible."""
+    def can_pack_demands(demands, capacities):
         items = sorted(
             (float(demand) for demand in demands), reverse=True
         )
@@ -129,7 +125,6 @@ class OnlyDQN(DQN):
         return True
 
     def collect_candidates(self):
-        """Collapse vehicle symmetry and reject actions that strand demand."""
         candidate_map = {}
         empty_route_seen = False
         for route_idx, route in enumerate(self.routes):
@@ -154,7 +149,7 @@ class OnlyDQN(DQN):
                     - (self.mdp.node_demand[candidate] if idx == route_idx else 0.0)
                     for idx, other in enumerate(self.routes)
                 ]
-                if self._can_pack_demands(remaining_demands, remaining_caps):
+                if self.can_pack_demands(remaining_demands, remaining_caps):
                     feasible_candidates.append(candidate)
 
             if feasible_candidates:
@@ -164,7 +159,7 @@ class OnlyDQN(DQN):
 
     def get_graph_statics(self, mdp, train):
         del train
-        scale = self._distance_scale(mdp)
+        scale = self.distance_scale(mdp)
         distances = mdp.distance_matrix[~np.eye(mdp.num_nodes, dtype=bool)]
         total_demand = float(np.sum(mdp.node_demand))
         fleet_capacity = max(mdp.num_cars * mdp.cars_capacity, 1e-6)
@@ -220,12 +215,12 @@ class OnlyDQN(DQN):
         return torch.tensor(values, device=self.device, dtype=torch.float32)
 
     def get_next_node_statics(self, mdp, route, next_node):
-        scale = self._distance_scale(mdp)
+        scale = self.distance_scale(mdp)
         current = route["current_node"]
         depot = mdp.depot_num
         current_distance = mdp.distance_matrix[current][next_node]
         depot_distance = mdp.distance_matrix[depot][next_node]
-        marginal_cost = self._marginal_cost(mdp, route, next_node)
+        marginal_cost = self.marginal_cost(mdp, route, next_node)
         saving = mdp.distance_matrix[current][depot] + depot_distance - current_distance
         values = [
             float(np.sum(mdp.distance_matrix[:, next_node]))
@@ -246,9 +241,9 @@ class OnlyDQN(DQN):
 
     def training_episode(self, route_idx, next_node):
         route = self.routes[route_idx]
-        reward = -self._marginal_cost(
+        reward = -self.marginal_cost(
             self.mdp, route, next_node
-        ) / self._distance_scale(self.mdp)
+        ) / self.distance_scale(self.mdp)
         self.replay_buffer.insert(
             self.mdp, self.routes, route_idx, next_node, reward, self.used
         )
@@ -263,7 +258,6 @@ class OnlyDQN(DQN):
 
 
     def close_finished_routes(self, training):
-        # Marginal-cost rewards already include the changing depot-return edge.
         del training
         for route in self.routes:
             if (
@@ -312,169 +306,10 @@ class OnlyDQN(DQN):
                 )
 
     @staticmethod
-    def _route_distance(customers, mdp):
+    def route_distance(customers, mdp):
         path = [mdp.depot_num, *customers, mdp.depot_num]
-        return sum(
-            mdp.distance_matrix[a][b] for a, b in zip(path, path[1:])
-        )
-
-    def _local_search(self, routes, mdp):
-        """Improve DQN routes with capacity-safe 2-opt, relocate, and swap."""
-        customer_routes = [
-            [node for node in route["path"] if node != mdp.depot_num]
-            for route in routes
-        ]
-        loads = [
-            sum(mdp.node_demand[node] for node in route)
-            for route in customer_routes
-        ]
-        tolerance = 1e-10
-
-        improved = True
-        while improved:
-            improved = False
-
-            for route in customer_routes:
-                old_distance = self._route_distance(route, mdp)
-                best_delta, best_pair = 0.0, None
-                for i in range(len(route) - 1):
-                    for j in range(i + 1, len(route)):
-                        candidate = (
-                            route[:i]
-                            + list(reversed(route[i:j + 1]))
-                            + route[j + 1:]
-                        )
-                        delta = self._route_distance(candidate, mdp) - old_distance
-                        if delta < best_delta - tolerance:
-                            best_delta, best_pair = delta, (i, j)
-                if best_pair is not None:
-                    i, j = best_pair
-                    route[i:j + 1] = reversed(route[i:j + 1])
-                    improved = True
-
-            best_delta, best_move = 0.0, None
-            for source_idx, source in enumerate(customer_routes):
-                for node_pos, node in enumerate(source):
-                    demand = mdp.node_demand[node]
-                    for target_idx, target in enumerate(customer_routes):
-                        if (
-                            source_idx == target_idx
-                            or loads[target_idx] + demand
-                            > mdp.cars_capacity + tolerance
-                        ):
-                            continue
-                        old = (
-                            self._route_distance(source, mdp)
-                            + self._route_distance(target, mdp)
-                        )
-                        new_source = source[:node_pos] + source[node_pos + 1:]
-                        for insert_pos in range(len(target) + 1):
-                            new_target = (
-                                target[:insert_pos]
-                                + [node]
-                                + target[insert_pos:]
-                            )
-                            delta = (
-                                self._route_distance(new_source, mdp)
-                                + self._route_distance(new_target, mdp)
-                                - old
-                            )
-                            if delta < best_delta - tolerance:
-                                best_delta = delta
-                                best_move = (
-                                    source_idx,
-                                    node_pos,
-                                    target_idx,
-                                    insert_pos,
-                                    demand,
-                                )
-            if best_move is not None:
-                source_idx, node_pos, target_idx, insert_pos, demand = best_move
-                node = customer_routes[source_idx].pop(node_pos)
-                customer_routes[target_idx].insert(insert_pos, node)
-                loads[source_idx] -= demand
-                loads[target_idx] += demand
-                improved = True
-
-            best_delta, best_swap = 0.0, None
-            for first_idx in range(len(customer_routes)):
-                for second_idx in range(first_idx + 1, len(customer_routes)):
-                    first = customer_routes[first_idx]
-                    second = customer_routes[second_idx]
-                    old = (
-                        self._route_distance(first, mdp)
-                        + self._route_distance(second, mdp)
-                    )
-                    for i, first_node in enumerate(first):
-                        for j, second_node in enumerate(second):
-                            first_load = (
-                                loads[first_idx]
-                                - mdp.node_demand[first_node]
-                                + mdp.node_demand[second_node]
-                            )
-                            second_load = (
-                                loads[second_idx]
-                                - mdp.node_demand[second_node]
-                                + mdp.node_demand[first_node]
-                            )
-                            if (
-                                first_load > mdp.cars_capacity + tolerance
-                                or second_load > mdp.cars_capacity + tolerance
-                            ):
-                                continue
-                            new_first, new_second = first.copy(), second.copy()
-                            new_first[i], new_second[j] = second_node, first_node
-                            delta = (
-                                self._route_distance(new_first, mdp)
-                                + self._route_distance(new_second, mdp)
-                                - old
-                            )
-                            if delta < best_delta - tolerance:
-                                best_delta = delta
-                                best_swap = (
-                                    first_idx,
-                                    second_idx,
-                                    i,
-                                    j,
-                                    first_load,
-                                    second_load,
-                                )
-            if best_swap is not None:
-                (
-                    first_idx,
-                    second_idx,
-                    i,
-                    j,
-                    first_load,
-                    second_load,
-                ) = best_swap
-                (
-                    customer_routes[first_idx][i],
-                    customer_routes[second_idx][j],
-                ) = (
-                    customer_routes[second_idx][j],
-                    customer_routes[first_idx][i],
-                )
-                loads[first_idx], loads[second_idx] = first_load, second_load
-                improved = True
-
-        improved_routes = []
-        for customers, load in zip(customer_routes, loads):
-            path = [mdp.depot_num, *customers]
-            if customers:
-                path.append(mdp.depot_num)
-            improved_routes.append(
-                {
-                    "path": path,
-                    "total_distance": self._route_distance(customers, mdp),
-                    "capacity": float(load),
-                    "current_node": mdp.depot_num,
-                }
-            )
-        return improved_routes
-
+        return sum(mdp.distance_matrix[a][b] for a, b in zip(path, path[1:]))
     def evaluate(self, mdp):
-        _distance, routes = super().evaluate(mdp)
-        routes = self._local_search(deepcopy(routes), mdp)
-        self.routes = routes
-        return sum(route["total_distance"] for route in routes), routes
+        return super().evaluate(mdp)
+
+    

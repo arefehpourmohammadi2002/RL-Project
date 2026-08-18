@@ -54,4 +54,3 @@ class MDP:
     def build(self, min_distance, max_distance, min_node_dem, max_node_dem):
         self.fill_distance_matrix(min_distance=min_distance, max_distance=max_distance)
         self.fill_node_dem_matrix(min_node_dem=min_node_dem, max_node_dem=max_node_dem)
-        return self

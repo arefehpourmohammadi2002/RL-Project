@@ -6,8 +6,6 @@ from copy import deepcopy
 import matplotlib.pyplot as plt
 import replay_buffer as RB
 from MDP import MDP
-from route_local_search import improve_routes
-
 
 class DQNNetwork(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
@@ -88,8 +86,7 @@ class DQN(ABC):
         self.epsilon_history = []
 
     @staticmethod
-    def _can_pack_demands(demands, capacities):
-        """Fast conservative packing check used to keep actions feasible."""
+    def can_pack_demands(demands, capacities):
         items = sorted(
             (float(demand) for demand in demands), reverse=True
         )
@@ -110,13 +107,13 @@ class DQN(ABC):
             ]
             if not fitting_bins:
                 return False
-            _space_after, best_index = min(fitting_bins)
+            _, best_index = min(fitting_bins)
             remaining[best_index] -= item
 
         return True
 
     @staticmethod
-    def _distance_scale(mdp):
+    def distance_scale(mdp):
         return max(
             float(sum(mdp.distance_matrix_ave)) / max(mdp.num_nodes, 1),
             1e-6,
@@ -144,7 +141,7 @@ class DQN(ABC):
                 if node != mdp.depot_num
             ]
             capacities = [mdp.cars_capacity] * mdp.num_cars
-            if self._can_pack_demands(demands, capacities):
+            if self.can_pack_demands(demands, capacities):
                 routes = [self.new_route() for _ in range(self.num_cars)]
                 return routes, mdp, {self.depot_num}
 
@@ -182,7 +179,7 @@ class DQN(ABC):
             - (mdp.node_demand[next_node] if idx == route_idx else 0.0)
             for idx, route in enumerate(routes)
         ]
-        return self._can_pack_demands(
+        return self.can_pack_demands(
             remaining_demands, remaining_capacities
         )
 
@@ -239,7 +236,7 @@ class DQN(ABC):
             return torch.zeros(2, device=self.device, dtype=torch.float32)
 
         distance_scale = max(
-            (self.mdp.num_nodes - 1) * self._distance_scale(self.mdp), 1e-6
+            (self.mdp.num_nodes - 1) * self.distance_scale(self.mdp), 1e-6
         )
         sum_route_dis = (
             sum(r["total_distance"] for r in other_routes) / distance_scale
@@ -256,7 +253,7 @@ class DQN(ABC):
 
     def get_current_route_statics(self, route):
         distance_scale = max(
-            (self.mdp.num_nodes - 1) * self._distance_scale(self.mdp), 1e-6
+            (self.mdp.num_nodes - 1) * self.distance_scale(self.mdp), 1e-6
         )
         total_distance = torch.tensor(
             [route["total_distance"] / distance_scale],
@@ -395,7 +392,7 @@ class DQN(ABC):
         route = self.routes[route_idx]
         reward = (
             -self.mdp.distance_matrix[route["current_node"]][next_node]
-            / self._distance_scale(self.mdp)
+            / self.distance_scale(self.mdp)
         )
 
         self.replay_buffer.insert(mdp=self.mdp, routes=self.routes, route_idx=route_idx,
@@ -443,7 +440,7 @@ class DQN(ABC):
                 if not self.get_candidate(mdp=self.mdp, route=route, used=self.used):
                     reward = (
                         -self.mdp.distance_matrix[route["current_node"]][self.mdp.depot_num]
-                        / self._distance_scale(self.mdp)
+                        / self.distance_scale(self.mdp)
                     )
 
                     if training:
@@ -481,7 +478,7 @@ class DQN(ABC):
             route = self.routes[route_idx]
             reward = (
                 -self.mdp.distance_matrix[route["current_node"]][next_node]
-                / self._distance_scale(self.mdp)
+                / self.distance_scale(self.mdp)
             )
             self.replay_buffer.insert(mdp=self.mdp, routes=self.routes, route_idx=route_idx,
                                       next_node=next_node, reward=reward, used=self.used)
@@ -536,7 +533,6 @@ class DQN(ABC):
         self.routes = [self.new_route() for _ in range(mdp.num_cars)]
         self.used = {self.depot_num}
         self.run_episode(train=False)
-        self.routes = improve_routes(self.routes, mdp)
         total_distance = sum(
             route["total_distance"] for route in self.routes
         )
