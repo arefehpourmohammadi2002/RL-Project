@@ -10,13 +10,26 @@ import replay_buffer as RB
 
 class TransformerDQN(DQN):
     def __init__(self, num_layers, num_heads, model_dim, FF_hidden_dim, **parent_variebles):
-        expected_input_dim = 3 * model_dim + 5
+        expected_input_dim = 3 * model_dim + 11
         if parent_variebles.get("input_dim") != expected_input_dim:
             raise ValueError(
                 f"TransformerDQN expects input_dim={expected_input_dim}, "
                 f"got {parent_variebles.get('input_dim')}"
             )
-        super().__init__(**parent_variebles)
+        # State  = model_dim (graph) + model_dim (unused) + 2 other-route (parent default).
+        # Action = model_dim + 1 distance + 2 current-route + 6 shared action features.
+        state_dim = 2 * model_dim + 2
+        action_dim = model_dim + 9
+        hidden_dim = parent_variebles["hidden_dim"]
+        super().__init__(
+            state_net_input_dim=state_dim,
+            state_net_hidden_dim=hidden_dim,
+            state_net_output_dim=hidden_dim,
+            action_net_input_dim=action_dim,
+            action_net_hidden_dim=hidden_dim,
+            action_net_output_dim=hidden_dim,
+            **parent_variebles,
+        )
 
         self.graph_embedding = None
         self.node_embedding = None
@@ -26,6 +39,8 @@ class TransformerDQN(DQN):
         self.transforemer.to(self.device)
         self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters 
             chain(self.explore_model.parameters(), 
+            self.action_net.parameters(),
+            self.state_net.parameters(),
             self.transforemer.parameters()),
             lr=self.lr
         )

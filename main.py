@@ -53,7 +53,7 @@ gnn_trans_dqn = GNNTransDQN(
         num_heads=2, 
         model_dim=4, 
         FF_hidden_dim=10,
-        input_dim=17,
+        input_dim=23,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
@@ -83,7 +83,7 @@ gnn_dqn = GNNDQN(
         gnn_hidden_dim=5,
         gnn_output_dim=7,
         large_value=100,
-        input_dim=17,
+        input_dim=23,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
@@ -109,7 +109,7 @@ gnn_dqn = GNNDQN(
     )
 
 only_dqn = OnlyDQN(
-        input_dim=15,
+        input_dim=OnlyDQN.INPUT_DIM,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
@@ -139,7 +139,7 @@ transformer_dqn = TransformerDQN(
         num_heads=1,
         model_dim=5,
         FF_hidden_dim=8,
-        input_dim=20,
+        input_dim=26,
 
         output_dim=output_dim,
         hidden_dim=hidden_dim,
@@ -226,4 +226,3 @@ plt.plot(gnn_dqn_trials, label="gnn dqn")
 plt.plot(gnn_trans_dqn_trials, label="gnn trans dqn")
 plt.legend()
 plt.savefig("node.png")
-

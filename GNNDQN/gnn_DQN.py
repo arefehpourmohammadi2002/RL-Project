@@ -9,13 +9,26 @@ from DQN_parent import DQN
 class GNNDQN(DQN):
     def __init__(self, input_dim_gnn, gnn_hidden_dim, gnn_output_dim, large_value, **parent_variebles):
         embedding_dim = gnn_output_dim - 3
-        expected_input_dim = 3 * embedding_dim + 5
+        expected_input_dim = 3 * embedding_dim + 11
         if parent_variebles.get("input_dim") != expected_input_dim:
             raise ValueError(
                 f"GNNDQN expects input_dim={expected_input_dim}, "
                 f"got {parent_variebles.get('input_dim')}"
             )
-        super().__init__(**parent_variebles)
+        # State  = embedding (graph) + embedding (unused) + 2 other-route (parent default).
+        # Action = embedding + 1 distance + 2 current-route + 6 shared action features.
+        state_dim = 2 * embedding_dim + 2
+        action_dim = embedding_dim + 9
+        hidden_dim = parent_variebles["hidden_dim"]
+        super().__init__(
+            state_net_input_dim=state_dim,
+            state_net_hidden_dim=hidden_dim,
+            state_net_output_dim=hidden_dim,
+            action_net_input_dim=action_dim,
+            action_net_hidden_dim=hidden_dim,
+            action_net_output_dim=hidden_dim,
+            **parent_variebles,
+        )
 
         self.node_embedding = None
         self.gnn = GNN.SimpleGNN(input_dim=input_dim_gnn, hidden_dim=gnn_hidden_dim,
@@ -24,6 +37,8 @@ class GNNDQN(DQN):
         self.gnn.to(device=self.device)
         self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters
             chain(self.explore_model.parameters(),
+            self.action_net.parameters(),
+            self.state_net.parameters(),
             self.gnn.parameters()),
             lr=self.lr
         )
@@ -31,7 +46,7 @@ class GNNDQN(DQN):
     def get_graph_statics(self, mdp, train):
         '''
         graph statics:
-            is given from the transformer
+            is given from the gnn
         '''
         if not train:
             with torch.no_grad():
@@ -65,4 +80,3 @@ class GNNDQN(DQN):
             [distance], device=self.device, dtype=torch.float32
         )
         return torch.cat([self.node_embedding[next_node], distance])
-

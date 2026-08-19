@@ -15,14 +15,31 @@ class DQNNetwork(nn.Module):
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         self.dqn = nn.Sequential(
+            # nn.LayerNorm(input_dim),
             nn.Linear(self.input_dim, hidden_dim),
-            nn.ReLU(),
+            nn.SiLU(),
+            # nn.Linear(hidden_dim, hidden_dim),
+            # nn.SiLU(),
             nn.Linear(self.hidden_dim, self.output_dim)
         )
+        nn.init.zeros_(self.dqn[-1].weight)
+        nn.init.zeros_(self.dqn[-1].bias)
 
     def forward(self, input):
         return self.dqn(input)
 
+class StateActionNet(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.SiLU(), # think about relu
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, input):
+        return self.net(input)
 
 class DQN(ABC):
     def __init__(self, input_dim, hidden_dim, output_dim,
@@ -34,19 +51,48 @@ class DQN(ABC):
                 min_distance,
                 max_distance,
                 min_node_dem,
-                max_node_dem, max_grad_norm):
+                max_node_dem, max_grad_norm,
+                action_net_input_dim,
+                action_net_hidden_dim,
+                action_net_output_dim,
+                state_net_input_dim,
+                state_net_hidden_dim,
+                state_net_output_dim
+                ):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.explore_model = DQNNetwork(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim).to(self.device)
-        self.target_model = DQNNetwork(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim).to(self.device)
+        if state_net_input_dim + action_net_input_dim != input_dim:
+            raise ValueError(
+                f"state_net_input_dim ({state_net_input_dim}) + "
+                f"action_net_input_dim ({action_net_input_dim}) must equal "
+                f"input_dim ({input_dim})"
+            )
+
+        self.action_net = StateActionNet(
+                action_net_input_dim,
+                action_net_hidden_dim,
+                action_net_output_dim
+            ).to(self.device)
+
+        self.state_net = StateActionNet(
+                state_net_input_dim,
+                state_net_hidden_dim,
+                state_net_output_dim
+        ).to(self.device)
+
+        # explore_model / target_model consume the *concatenated embeddings*
+        # produced by state_net + action_net, not the raw feature vector.
+        joint_input_dim = state_net_output_dim + action_net_output_dim
+        self.explore_model = DQNNetwork(input_dim=joint_input_dim, hidden_dim=hidden_dim, output_dim=output_dim).to(self.device)
+        self.target_model = DQNNetwork(input_dim=joint_input_dim, hidden_dim=hidden_dim, output_dim=output_dim).to(self.device)
         self.target_model.load_state_dict(self.explore_model.state_dict())
 
         self.lr = lr
         self.lr_decay = lr_decay
         self.min_lr = min_lr
 
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.SmoothL1Loss()
 
         self.target_update_limit = target_update_counter
         self.explore_update_limit = explore_update_counter
@@ -112,8 +158,7 @@ class DQN(ABC):
 
         return True
 
-    @staticmethod
-    def distance_scale(mdp):
+    def distance_scale(self, mdp):
         return max(
             float(sum(mdp.distance_matrix_ave)) / max(mdp.num_nodes, 1),
             1e-6,
@@ -267,16 +312,102 @@ class DQN(ABC):
         )
         return torch.cat([total_distance, used_cap])
 
+    def get_route_action_statics(
+        self, mdp, routes, route, next_node, used
+    ):
+        """Shared routing features supplied to every DQN architecture."""
+        scale = self.distance_scale(mdp)
+        capacity_scale = max(float(mdp.cars_capacity), 1e-6)
+        current = route["current_node"]
+        depot = mdp.depot_num
+        demand = float(mdp.node_demand[next_node])
+        remaining_capacity = max(
+            float(mdp.cars_capacity - route["capacity"]), 1e-6
+        )
+
+        marginal_cost = (
+            mdp.distance_matrix[current][next_node]
+            + mdp.distance_matrix[next_node][depot]
+            - mdp.distance_matrix[current][depot]
+        )
+        saving = (
+            mdp.distance_matrix[current][depot]
+            + mdp.distance_matrix[depot][next_node]
+            - mdp.distance_matrix[current][next_node]
+        )
+
+        post_capacities = [
+            float(mdp.cars_capacity - other_route["capacity"])
+            - (demand if other_route is route else 0.0)
+            for other_route in routes
+        ]
+        remaining_demands = [
+            float(mdp.node_demand[node])
+            for node in range(mdp.num_nodes)
+            if node not in used
+            and node != next_node
+            and node != depot
+        ]
+        # Unlike total fleet slack (which is constant for an instance), this
+        # measures whether the largest remaining customer still fits easily.
+        packing_slack = (
+            max(post_capacities, default=0.0)
+            - max(remaining_demands, default=0.0)
+        ) / capacity_scale
+
+        other_marginal_costs = []
+        for other_route_idx, other_route in enumerate(routes):
+            if other_route is route:
+                continue
+            if demand > mdp.cars_capacity - other_route["capacity"] + 1e-6:
+                continue
+            if not self.action_keeps_solution_feasible(
+                mdp, routes, other_route_idx, next_node, used
+            ):
+                continue
+            other_current = other_route["current_node"]
+            other_marginal_costs.append(
+                mdp.distance_matrix[other_current][next_node]
+                + mdp.distance_matrix[next_node][depot]
+                - mdp.distance_matrix[other_current][depot]
+            )
+        placement_regret = (
+            min(other_marginal_costs) - marginal_cost
+            if other_marginal_costs else 0.0
+        )
+
+        return torch.tensor(
+            [
+                marginal_cost / scale,
+                saving / scale,
+                demand / remaining_capacity,
+                packing_slack,
+                mdp.distance_matrix[next_node][depot] / scale,
+                placement_regret / scale,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
+
     def create_input(self, mdp, routes, route, next_node, used, train):
+        # state input
         graph_statics = self.get_graph_statics(mdp, train)
         unused_nodes_statics = self.get_unused_nodes_statics(mdp, used)
-        next_nodes_statics = self.get_next_node_statics(mdp, route, next_node)
         other_routes_statics = self.get_other_routes_static(routes, route)
+        state_representation = self.state_net(torch.cat([graph_statics,
+                                                         unused_nodes_statics,
+                                                         other_routes_statics]))
+        # action input
+        next_nodes_statics = self.get_next_node_statics(mdp, route, next_node)
         current_route_statics = self.get_current_route_statics(route)
+        route_action_statics = self.get_route_action_statics(
+            mdp, routes, route, next_node, used
+        )
+        action_representation = self.action_net(torch.cat([
+            next_nodes_statics, current_route_statics, route_action_statics,
+        ]))
 
-        return torch.cat([graph_statics, unused_nodes_statics,
-                        other_routes_statics, current_route_statics,
-                        next_nodes_statics])
+        return torch.cat([state_representation, action_representation])
 
     def explore_result(self, rb_objs, train):
         explore_input = []
@@ -302,27 +433,36 @@ class DQN(ABC):
         unused_nodes_statics = self.get_unused_nodes_statics(mdp, used)
 
         target_model_input = []
-        for route_idx, route in enumerate(routes):
-            candidates = [
-                node
-                for node in self.get_candidate(
-                    mdp=mdp, route=route, used=used
-                )
-                if self.action_keeps_solution_feasible(
-                    mdp, routes, route_idx, node, used
-                )
-            ]
-            if not candidates:
-                continue
+        with torch.no_grad():
+            for route_idx, route in enumerate(routes):
+                candidates = [
+                    node
+                    for node in self.get_candidate(
+                        mdp=mdp, route=route, used=used
+                    )
+                    if self.action_keeps_solution_feasible(
+                        mdp, routes, route_idx, node, used
+                    )
+                ]
+                if not candidates:
+                    continue
 
-            current_route_statics = self.get_current_route_statics(route)
-            other_routes_statics = self.get_other_routes_static(routes, route)
+                current_route_statics = self.get_current_route_statics(route)
+                other_routes_statics = self.get_other_routes_static(routes, route)
+                state_representation = self.state_net(torch.cat([
+                    graph_statics, unused_nodes_statics, other_routes_statics,
+                ]))
 
-            for candid in candidates:
-                next_nodes_statics = self.get_next_node_statics(mdp, route, candid)
-                target_model_input.append(torch.cat([graph_statics, unused_nodes_statics,
-                                other_routes_statics, current_route_statics,
-                                next_nodes_statics]))
+                for candid in candidates:
+                    next_nodes_statics = self.get_next_node_statics(mdp, route, candid)
+                    route_action_statics = self.get_route_action_statics(
+                        mdp, routes, route, candid, used
+                    )
+                    action_representation = self.action_net(torch.cat([
+                        next_nodes_statics, current_route_statics,
+                        route_action_statics,
+                    ]))
+                    target_model_input.append(torch.cat([state_representation, action_representation]))
 
         if not target_model_input:
             return None
@@ -415,20 +555,28 @@ class DQN(ABC):
 
         input = []
         index_map = []
-        for route_idx, candidates in candidate_map.items():
-            route = self.routes[route_idx]
-            current_route_statics = self.get_current_route_statics(route)
-            other_routes_statics = self.get_other_routes_static(self.routes, route)
-
-            for candidate in candidates:
-                next_nodes_statics = self.get_next_node_statics(self.mdp, route, candidate)
-                input.append(torch.cat([graph_statics, unused_nodes_statics,
-                                other_routes_statics, current_route_statics,
-                                next_nodes_statics]))
-                index_map.append((route_idx, candidate))
-
-        explore_input = torch.stack(input)
         with torch.no_grad():
+            for route_idx, candidates in candidate_map.items():
+                route = self.routes[route_idx]
+                current_route_statics = self.get_current_route_statics(route)
+                other_routes_statics = self.get_other_routes_static(self.routes, route)
+                state_representation = self.state_net(torch.cat([
+                    graph_statics, unused_nodes_statics, other_routes_statics,
+                ]))
+
+                for candidate in candidates:
+                    next_nodes_statics = self.get_next_node_statics(self.mdp, route, candidate)
+                    route_action_statics = self.get_route_action_statics(
+                        self.mdp, self.routes, route, candidate, self.used
+                    )
+                    action_representation = self.action_net(torch.cat([
+                        next_nodes_statics, current_route_statics,
+                        route_action_statics,
+                    ]))
+                    input.append(torch.cat([state_representation, action_representation]))
+                    index_map.append((route_idx, candidate))
+
+            explore_input = torch.stack(input)
             q_values = self.explore_model(explore_input).squeeze(-1)
         index = q_values.argmax().item()
 

@@ -17,27 +17,42 @@ class GNNTransDQN(DQN):
                 f"model_dim must equal the GNN embedding dimension "
                 f"({embedding_dim}), got {model_dim}"
             )
-        expected_input_dim = 3 * embedding_dim + 5
+        expected_input_dim = 3 * embedding_dim + 11
         if parent_variebles.get("input_dim") != expected_input_dim:
             raise ValueError(
                 f"GNNTransDQN expects input_dim={expected_input_dim}, "
                 f"got {parent_variebles.get('input_dim')}"
             )
-        super().__init__(**parent_variebles)
+        # State  = embedding (graph) + embedding (unused) + 2 other-route (parent default).
+        # Action = embedding + 1 distance + 2 current-route + 6 shared action features.
+        state_dim = 2 * embedding_dim + 2
+        action_dim = embedding_dim + 9
+        hidden_dim = parent_variebles["hidden_dim"]
+        super().__init__(
+            state_net_input_dim=state_dim,
+            state_net_hidden_dim=hidden_dim,
+            state_net_output_dim=hidden_dim,
+            action_net_input_dim=action_dim,
+            action_net_hidden_dim=hidden_dim,
+            action_net_output_dim=hidden_dim,
+            **parent_variebles,
+        )
 
         self.graph_embedding = None
         self.node_embedding = None
-        self.gnn = SimpleGNN(input_dim=input_dim_gnn, hidden_dim=gnn_hidden_dim, 
+        self.gnn = SimpleGNN(input_dim=input_dim_gnn, hidden_dim=gnn_hidden_dim,
                         output_dim=gnn_output_dim, device=self.device,
                         large_value=large_value)
-        
-        self.transforemer = Encoder(num_layers=num_layers, num_heads=num_heads, 
+
+        self.transforemer = Encoder(num_layers=num_layers, num_heads=num_heads,
                                     model_dim=model_dim, FF_hidden_dim=FF_hidden_dim)
         self.gnn.to(device=self.device)
         self.transforemer.to(self.device)
-        self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters 
-            chain(self.explore_model.parameters(), 
-            self.transforemer.parameters(), 
+        self.optimizer = torch.optim.Adam( # abetter optimizer what about the parameters
+            chain(self.explore_model.parameters(),
+            self.action_net.parameters(),
+            self.state_net.parameters(),
+            self.transforemer.parameters(),
             self.gnn.parameters()),
             lr=self.lr
         )

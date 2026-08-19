@@ -1,62 +1,73 @@
 output_dim: 1
 hidden_dim: 64
-lr: 0.001
+lr: 0.0005
 lr_decay: 0.99
 min_lr: 0.0001
-target_update_counter: 10
+target_update_counter: 25
 explore_update_counter: 1
-discount: 1.0
+discount: 0.99
 epsilon: 1.0
-epsilon_decay: 0.97
+epsilon_decay: 0.985
 min_epsilon: 0.05
 batch_size: 32
 RB_capacity: 5000
-num_first_samples: 64
-num_epoches: 60
-max_num_nodes: 20
-min_num_nodes: 9
+num_first_samples: 100
+num_epoches: 100
+max_num_nodes: 50
+min_num_nodes: 10
 depot_num: 0
-max_num_cars: 4
-min_num_cars: 4
-cars_capacity: 100.0
+max_num_cars: 10
+min_num_cars: 5
+cars_capacity: 300.0
 min_distance: 3.0
 max_distance: 10.0
 min_node_dem: 10.0
 max_node_dem: 30.0
 max_grad_norm: 10.0
 
+a2c:
+  # A2C-specific coefficients; all environment settings remain shared with DQN.
+  lr: 0.001
+  value_coef: 0.5
+  entropy_coef: 0.01
+
 comparison:
   seed: 42
   trials_per_point: 5
+  test_samples_file: test_samples.pkl
   depot_num: 0
-  cars_capacity: 100.0
+  cars_capacity: 300.0
   min_distance: 3.0
   max_distance: 10.0
   min_node_demand: 10.0
   max_node_demand: 30.0
-  training_min_nodes: 9
-  training_max_nodes: 20
-  training_min_cars: 4
-  training_max_cars: 4
+  training_min_nodes: 10
+  training_max_nodes: 50
+  training_min_cars: 5
+  training_max_cars: 10
   hidden_dim: 64
   node_sweep:
-    min_nodes: 9
-    max_nodes: 20
+    min_nodes: 10
+    max_nodes: 50
     step: 1
-    fixed_cars: 4
+    min_cars: 5
+    max_cars: 10
     output_file: comparison_by_nodes.png
   car_sweep:
-    min_cars: 3
-    max_cars: 6
+    min_cars: 5
+    max_cars: 10
     step: 1
-    fixed_nodes: 15
+    fixed_nodes: 50
     output_file: comparison_by_cars.png
+  a2c_output:
+    node_sweep_file: A2C/results/comparison_by_nodes_a2c.png
+    car_sweep_file: A2C/results/comparison_by_cars_a2c.png
   checkpoints:
     only_dqn: only_dqn_checkpoint.pt
-    only_a2c: only_a2c_checkpoint.pt
-    gnn_a2c: gnn_a2c_checkpoint.pt
-    transformer_a2c: transformer_a2c_checkpoint.pt
-    gnn_transformer_a2c: gnn_transformer_a2c_checkpoint.pt
+    only_a2c: A2C/checkpoints/only_a2c_checkpoint.pt
+    gnn_a2c: A2C/checkpoints/gnn_a2c_checkpoint.pt
+    transformer_a2c: A2C/checkpoints/transformer_a2c_checkpoint.pt
+    gnn_transformer_a2c: A2C/checkpoints/gnn_transformer_a2c_checkpoint.pt
     gnn_dqn: gnn_dqn_checkpoint.pt
     transformer_dqn: transformer_dqn_checkpoint.pt
     gnn_transformer_dqn: gnn_transformer_dqn_checkpoint.pt

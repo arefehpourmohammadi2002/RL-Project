@@ -56,6 +56,7 @@ class Layer(nn.Module):
         input = input + attn_out
 
         ff_out = self.FF(self.norm2(input))
+        # add norm layer here
         input = input + ff_out
 
         return input
